@@ -1,0 +1,40 @@
+name: Swiggy Login Probe
+
+# Manual trigger only — click "Run workflow" in the Actions tab.
+# This logs into ONE Swiggy account from a GitHub runner IP and reports
+# whether it goes straight in or hits an OTP/captcha. It does NOT scrape.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright + Chromium
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run login probe
+        env:
+          SWIGGY_USER: ${{ secrets.SWIGGY_USER }}
+          SWIGGY_PASS: ${{ secrets.SWIGGY_PASS }}
+          HEADLESS: 'true'
+        run: python swiggy_login_probe.py
+
+      - name: Upload screenshots + log
+        if: always()        # upload even if the probe exits non-zero, so we always get evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: swiggy-probe-output
+          path: swiggy_probe_out/
+          if-no-files-found: warn
