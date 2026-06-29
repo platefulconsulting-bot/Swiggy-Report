@@ -142,7 +142,7 @@ with sync_playwright() as pw:
     if not reached:
         log("  (Business Metrics not detected — see 10_business_metrics.png.)")
 
-    # Wait for REAL data (the earlier capture caught a skeleton mid-load). Look for a ₹ value.
+    # Wait for REAL data (earlier capture caught a skeleton mid-load). Look for a ₹ value.
     log("[6b] Waiting for metric values to load")
     for _ in range(25):
         try:
@@ -152,8 +152,8 @@ with sync_playwright() as pw:
         time.sleep(1)
     time.sleep(2); shot(page, "10_business_metrics")
 
-    # ---------- OUTLET LEVEL DETAILS (the per-RID source) ----------
-    log("[7] Opening 'See Outlet Level Data'")
+    # ---------- OUTLET LEVEL DETAILS: capture metric list + a real per-RID read ----------
+    log("[7] Opening Outlet Level Details")
     ol = first_visible(page, ["text=/See Outlet Level Data/i", "*:has-text('Outlet Level Data')"])
     if not ol:
         log("  'See Outlet Level Data' not found — see 10_business_metrics.png")
@@ -166,33 +166,65 @@ with sync_playwright() as pw:
                 except Exception: pass
                 time.sleep(1)
             time.sleep(2); shot(page, "13_outlet_level")
-            log("  outlet-level page -> 13_outlet_level.png")
 
-            # date-range dropdown (e.g. 'Today v')
-            log("[8] Opening date dropdown")
-            d = first_visible(page, ["button:has-text('Today')", "text=/^Today$/", "*:has-text('Today')"])
-            if d:
+            # (A) METRIC dropdown — open cleanly, screenshot, enumerate options
+            log("[8] Opening METRIC dropdown")
+            mp = None
+            try:
+                cand = page.get_by_text("Net Sales", exact=True).first
+                if cand.count(): mp = cand
+            except Exception: pass
+            if mp is None:
+                mp = first_visible(page, ["button:has-text('Net Sales')", "*:has-text('Net Sales')"])
+            if mp:
                 try:
-                    d.click(); time.sleep(2); shot(page, "19_olv_date_options")
-                    log("  date options -> 19_olv_date_options.png")
+                    mp.click(); time.sleep(2); shot(page, "22_metric_dropdown")
+                    opts = []
+                    try:
+                        items = page.locator("xpath=//*[@role='option' or self::li or contains(@class,'ption') or contains(@class,'item') or contains(@class,'Item')]")
+                        for i in range(min(items.count(), 60)):
+                            t = items.nth(i).inner_text().strip().replace("\n", " ")
+                            if t and len(t) < 50: opts.append(t)
+                    except Exception as e:
+                        log(f"  enum failed: {e}")
+                    uniq = list(dict.fromkeys(opts))
+                    log("  METRIC OPTIONS: " + (" ; ".join(uniq) if uniq else "(parse empty — read 22_metric_dropdown.png)"))
                     page.keyboard.press("Escape"); time.sleep(1)
-                except Exception as e: log(f"  date dropdown failed: {e}")
+                except Exception as e:
+                    log(f"  metric dropdown failed: {e}")
             else:
-                log("  date dropdown not found")
+                log("  metric pill not found")
 
-            # metric dropdown (e.g. 'Net Sales')
-            log("[9] Opening metric dropdown")
-            m = first_visible(page, ["button:has-text('Net Sales')", "*:has-text('Net Sales')"])
-            if m:
+            # (B) set date = Yesterday and dump per-RID rows (shows the row structure)
+            log("[9] Setting date = Yesterday, reading rows")
+            dp = first_visible(page, ["button:has-text('Today')", "button:has-text('Yesterday')",
+                "button:has-text('This week')", "button:has-text('This Week')", "button:has-text('Last week')",
+                "button:has-text('This month')", "button:has-text('Custom')"])
+            if dp:
                 try:
-                    m.click(); time.sleep(2); shot(page, "20_olv_metric_options")
-                    log("  metric options -> 20_olv_metric_options.png")
-                    page.keyboard.press("Escape"); time.sleep(1)
-                except Exception as e: log(f"  metric dropdown failed: {e}")
-            else:
-                log("  metric dropdown not found")
+                    dp.click(); time.sleep(1)
+                    y = page.get_by_text("Yesterday", exact=False).first
+                    if y.count(): y.click(); time.sleep(3)
+                    else: log("  'Yesterday' option not found"); page.keyboard.press("Escape")
+                except Exception as e:
+                    log(f"  set Yesterday failed: {e}")
+            shot(page, "21_yesterday")
+            try:
+                anchors = page.locator("text=/RID:/")
+                cnt = anchors.count()
+                log(f"  found {cnt} RID anchors")
+                for i in range(cnt):
+                    txt = ""
+                    for up in ["xpath=ancestor::*[self::div][2]", "xpath=ancestor::*[self::div][1]", "xpath=.."]:
+                        try:
+                            t = anchors.nth(i).locator(up).inner_text().strip()
+                            if "RID" in t and len(t) > len(txt): txt = t
+                        except Exception: pass
+                    log("  ROW: " + txt.replace("\n", " | "))
+            except Exception as e:
+                log(f"  row dump failed: {e}")
         except Exception as e:
-            log(f"  outlet-level mapping failed: {e}")
+            log(f"  outlet-level capture failed: {e}")
 
     (OUT/"result.txt").write_text("\n".join(log_lines), encoding="utf-8")
     log(f"\nArtifacts in: {OUT.resolve()}")
