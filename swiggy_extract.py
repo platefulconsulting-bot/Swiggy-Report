@@ -142,45 +142,63 @@ with sync_playwright() as pw:
     if not reached:
         log("  (Business Metrics not detected — see 10_business_metrics.png.)")
 
-    # ---------- DOWNLOAD REPORT ----------
-    dl_btn = first_visible(page, [
-        "button:has-text('Download Report')", "a:has-text('Download Report')",
-        "*:has-text('Download Report')", "button:has-text('Download')"
-    ])
-    if dl_btn:
-        log("[7] Clicking 'Download Report'")
-        downloaded = False
+    # ---------- MAP THE LIVE PAGE (Path B: scrape) ----------
+    log("[7] Mapping date selector")
+    dc = first_visible(page, ["text=/Today,/i", "*:has-text('Today, ')", "button:has-text('Today')"])
+    if dc:
         try:
-            with page.expect_download(timeout=45000) as di:
-                dl_btn.click()
-            dl = di.value
-            dest = OUT / (dl.suggested_filename or "business_metrics_report.xlsx")
-            dl.save_as(str(dest))
-            log(f"  DOWNLOADED: {dest.name} ({dest.stat().st_size} bytes)")
-            downloaded = True
-        except Exception as e:
-            log(f"  No direct download captured ({e}).")
-        time.sleep(3)
-        shot(page, "11_after_download_click")   # reveals any date/format dialog if one appeared
-        if not downloaded:
-            log("  -> a dialog may have appeared (date range / email). See 11_after_download_click.png")
+            dc.click(); time.sleep(2); shot(page, "12_date_options")
+            log("  date options -> 12_date_options.png")
+            page.keyboard.press("Escape"); time.sleep(1)
+        except Exception as e: log(f"  date click failed: {e}")
     else:
-        log("[7] 'Download Report' button not found — see 10_business_metrics.png")
+        log("  date control not found")
 
-    # ---------- SCOUT THE DATE SELECTOR (for Phase 2) ----------
-    log("[8] Scouting the date control")
-    date_ctrl = first_visible(page, [
-        "text=/Today,/i", "text=/^Today/i", "*:has-text('Today, ')",
-        "button:has-text('Today')", "*:has-text('Last Monday')"
-    ])
-    if date_ctrl:
+    log("[8] Opening 'See Outlet Level Data'")
+    ol = first_visible(page, ["text=/See Outlet Level Data/i", "*:has-text('Outlet Level Data')"])
+    if ol:
         try:
-            date_ctrl.click(); time.sleep(2); shot(page, "12_date_options")
-            log("  clicked date header — see 12_date_options.png for available ranges")
-        except Exception as e:
-            log(f"  date click failed: {e}")
+            ol.click(); time.sleep(2); shot(page, "13_outlet_level")
+            log("  outlet-level -> 13_outlet_level.png")
+        except Exception as e: log(f"  outlet-level click failed: {e}")
     else:
-        log("  date header not found — check 10_business_metrics.png")
+        log("  'See Outlet Level Data' not found")
+
+    log("[9] Sampling category tabs")
+    for tab, fname in [("Operations", "14_operations"), ("Ads", "15_ads"), ("Funnel", "16_funnel")]:
+        t = first_visible(page, [f'text="{tab}"'])
+        if t:
+            try:
+                t.click(); time.sleep(2); shot(page, fname); log(f"  {tab} -> {fname}.png")
+            except Exception as e: log(f"  {tab} tab click failed: {e}")
+        else:
+            log(f"  {tab} tab not found")
+
+    # ---------- ADVANCE THE DOWNLOAD WIZARD ONE STEP (Path A: xlsx) ----------
+    log("[10] Opening Download Report wizard")
+    dl_btn = first_visible(page, ["button:has-text('Download Report')", "*:has-text('Download Report')"])
+    if dl_btn:
+        try:
+            dl_btn.click(); time.sleep(2); shot(page, "17_brand_modal")
+            log("  brand modal -> 17_brand_modal.png")
+            cb = first_visible(page, ["input[type=checkbox]"])
+            if cb:
+                try: cb.check(); time.sleep(1)
+                except Exception:
+                    try: cb.click(); time.sleep(1)
+                    except Exception as e: log(f"  brand select failed: {e}")
+            cont = first_visible(page, ["button:has-text('Continue')", "button:has-text('CONTINUE')"])
+            if cont:
+                try:
+                    cont.click(); time.sleep(3); shot(page, "18_wizard_step2")
+                    log("  wizard step 2 -> 18_wizard_step2.png")
+                except Exception as e: log(f"  continue failed: {e}")
+            else:
+                log("  Continue not found in modal")
+        except Exception as e:
+            log(f"  download wizard failed: {e}")
+    else:
+        log("  'Download Report' button not found")
 
     (OUT/"result.txt").write_text("\n".join(log_lines), encoding="utf-8")
     log(f"\nArtifacts in: {OUT.resolve()}")
