@@ -142,7 +142,7 @@ with sync_playwright() as pw:
     if not reached:
         log("  (Business Metrics not detected — see 10_business_metrics.png.)")
 
-    import json
+    import json, re
     # Wait for real data (avoid skeleton capture).
     log("[6b] Waiting for metric values to load")
     for _ in range(25):
@@ -157,8 +157,8 @@ with sync_playwright() as pw:
     # Mechanics: metric = a "Filters" panel (pick one radio + Apply);
     # date = Today/Yesterday/This Week/Last Week/This Month/Custom;
     # rows = Name | RID | value | delta.  Expand DATES/METRICS once confirmed.
-    DATES   = ["Yesterday", "This Month"]                    # Previous Day, MTD (add "This Week" for Weekly)
-    METRICS = ["Net Sales", "Net AOV", "Kitchen Prep Time"]  # expand to full spec once proven
+    DATES   = ["Yesterday", "This Week", "This Month"]       # Previous Day, Weekly, MTD
+    METRICS = ["Net Sales", "Net AOV", "Kitchen Prep Time"]  # expand to full spec once date-switch confirmed
     current_metric = "Net Sales"
     shot_filters_done = {"v": False}
 
@@ -177,13 +177,17 @@ with sync_playwright() as pw:
             time.sleep(2); shot(page, "13_outlet_level")
 
             def set_date(label):
-                pill = first_visible(page, [f"button:has-text('{x}')" for x in
-                    ["Today", "Yesterday", "This week", "This Week", "Last week", "Last Week",
-                     "This month", "This Month", "Custom"]])
+                # the date pill is NOT a <button> (button-only selectors failed last run);
+                # use the text-regex pattern that opened the dropdown during discovery.
+                pill = first_visible(page, [
+                    "text=/^Today$/", "text=/^Yesterday$/", "text=/^This [Ww]eek$/",
+                    "text=/^Last [Ww]eek$/", "text=/^This [Mm]onth$/", "text=/^Custom$/",
+                    "*:has-text('Today')",
+                ])
                 if not pill:
                     log(f"   date pill not found ({label})"); return False
                 try:
-                    pill.click(); time.sleep(1)
+                    pill.click(); time.sleep(1.2)
                     opt = page.get_by_text(label, exact=False).first
                     if opt.count():
                         opt.click(); time.sleep(3); return True
@@ -236,7 +240,33 @@ with sync_playwright() as pw:
                     log(f"   read_rows error: {e}")
                 return out
 
+            def parse_row(raw):
+                parts = [p.strip() for p in raw.split("|")]
+                name = parts[0] if parts else ""
+                rid = None; locality = ""; val = None
+                currency = False; no_data = False; delta = None; compare = ""
+                for p in parts[1:]:
+                    if p.startswith("RID:"):
+                        m = re.search(r"RID:\s*(\d+),?\s*(.*)", p)
+                        if m: rid = m.group(1); locality = m.group(2).strip()
+                    elif p.startswith("vs "):
+                        compare = p
+                    elif p.endswith("%"):
+                        try: delta = float(p.replace("%", "").strip())
+                        except Exception: pass
+                    elif p == "-":
+                        no_data = True
+                    elif p:
+                        pv = p
+                        if "₹" in pv: currency = True; pv = pv.replace("₹", "").replace(",", "")
+                        try: val = float(pv)
+                        except Exception: pass
+                return {"name": name, "rid": rid, "locality": locality, "value": val,
+                        "currency": currency, "no_data": no_data, "delta_pct": delta,
+                        "compare": compare, "raw": raw}
+
             data = []
+            html_dumped = False
             for d in DATES:
                 dok = set_date(d)
                 log(f"[8] date='{d}' set={dok}")
@@ -244,9 +274,18 @@ with sync_playwright() as pw:
                     mok = set_metric(m)
                     rws = read_rows()
                     log(f"   metric='{m}' set={mok} rows={len(rws)}")
+                    if not html_dumped and rws:
+                        try:
+                            html = page.locator("text=/RID:/").first.locator(
+                                "xpath=ancestor::*[self::div][2]").evaluate("el => el.outerHTML")
+                            log("   ROW_HTML(first): " + html[:700].replace("\n", " "))
+                            html_dumped = True
+                        except Exception as e:
+                            log(f"   html dump failed: {e}")
                     for r in rws:
-                        log(f"     DATA | {d} | {m} | {r}")
-                        data.append({"date": d, "metric": m, "raw": r})
+                        p = parse_row(r); p["date"] = d; p["metric"] = m
+                        log(f"     DATA | {d} | {m} | rid={p['rid']} val={p['value']} cur={p['currency']} d%={p['delta_pct']} {p['compare']}")
+                        data.append(p)
                 shot(page, f"scrape_{d.replace(' ', '_')}")
 
             with open(OUT / "scrape.json", "w", encoding="utf-8") as f:
