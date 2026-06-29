@@ -142,63 +142,57 @@ with sync_playwright() as pw:
     if not reached:
         log("  (Business Metrics not detected — see 10_business_metrics.png.)")
 
-    # ---------- MAP THE LIVE PAGE (Path B: scrape) ----------
-    log("[7] Mapping date selector")
-    dc = first_visible(page, ["text=/Today,/i", "*:has-text('Today, ')", "button:has-text('Today')"])
-    if dc:
+    # Wait for REAL data (the earlier capture caught a skeleton mid-load). Look for a ₹ value.
+    log("[6b] Waiting for metric values to load")
+    for _ in range(25):
         try:
-            dc.click(); time.sleep(2); shot(page, "12_date_options")
-            log("  date options -> 12_date_options.png")
-            page.keyboard.press("Escape"); time.sleep(1)
-        except Exception as e: log(f"  date click failed: {e}")
-    else:
-        log("  date control not found")
+            b = page.inner_text("body")
+            if ("₹" in b) or ("vs last" in b.lower()): break
+        except Exception: pass
+        time.sleep(1)
+    time.sleep(2); shot(page, "10_business_metrics")
 
-    log("[8] Opening 'See Outlet Level Data'")
+    # ---------- OUTLET LEVEL DETAILS (the per-RID source) ----------
+    log("[7] Opening 'See Outlet Level Data'")
     ol = first_visible(page, ["text=/See Outlet Level Data/i", "*:has-text('Outlet Level Data')"])
-    if ol:
-        try:
-            ol.click(); time.sleep(2); shot(page, "13_outlet_level")
-            log("  outlet-level -> 13_outlet_level.png")
-        except Exception as e: log(f"  outlet-level click failed: {e}")
+    if not ol:
+        log("  'See Outlet Level Data' not found — see 10_business_metrics.png")
     else:
-        log("  'See Outlet Level Data' not found")
-
-    log("[9] Sampling category tabs")
-    for tab, fname in [("Operations", "14_operations"), ("Ads", "15_ads"), ("Funnel", "16_funnel")]:
-        t = first_visible(page, [f'text="{tab}"'])
-        if t:
-            try:
-                t.click(); time.sleep(2); shot(page, fname); log(f"  {tab} -> {fname}.png")
-            except Exception as e: log(f"  {tab} tab click failed: {e}")
-        else:
-            log(f"  {tab} tab not found")
-
-    # ---------- ADVANCE THE DOWNLOAD WIZARD ONE STEP (Path A: xlsx) ----------
-    log("[10] Opening Download Report wizard")
-    dl_btn = first_visible(page, ["button:has-text('Download Report')", "*:has-text('Download Report')"])
-    if dl_btn:
         try:
-            dl_btn.click(); time.sleep(2); shot(page, "17_brand_modal")
-            log("  brand modal -> 17_brand_modal.png")
-            cb = first_visible(page, ["input[type=checkbox]"])
-            if cb:
-                try: cb.check(); time.sleep(1)
-                except Exception:
-                    try: cb.click(); time.sleep(1)
-                    except Exception as e: log(f"  brand select failed: {e}")
-            cont = first_visible(page, ["button:has-text('Continue')", "button:has-text('CONTINUE')"])
-            if cont:
+            ol.click()
+            for _ in range(20):
                 try:
-                    cont.click(); time.sleep(3); shot(page, "18_wizard_step2")
-                    log("  wizard step 2 -> 18_wizard_step2.png")
-                except Exception as e: log(f"  continue failed: {e}")
+                    if page.locator("text=/Outlet Level Details/i").first.count(): break
+                except Exception: pass
+                time.sleep(1)
+            time.sleep(2); shot(page, "13_outlet_level")
+            log("  outlet-level page -> 13_outlet_level.png")
+
+            # date-range dropdown (e.g. 'Today v')
+            log("[8] Opening date dropdown")
+            d = first_visible(page, ["button:has-text('Today')", "text=/^Today$/", "*:has-text('Today')"])
+            if d:
+                try:
+                    d.click(); time.sleep(2); shot(page, "19_olv_date_options")
+                    log("  date options -> 19_olv_date_options.png")
+                    page.keyboard.press("Escape"); time.sleep(1)
+                except Exception as e: log(f"  date dropdown failed: {e}")
             else:
-                log("  Continue not found in modal")
+                log("  date dropdown not found")
+
+            # metric dropdown (e.g. 'Net Sales')
+            log("[9] Opening metric dropdown")
+            m = first_visible(page, ["button:has-text('Net Sales')", "*:has-text('Net Sales')"])
+            if m:
+                try:
+                    m.click(); time.sleep(2); shot(page, "20_olv_metric_options")
+                    log("  metric options -> 20_olv_metric_options.png")
+                    page.keyboard.press("Escape"); time.sleep(1)
+                except Exception as e: log(f"  metric dropdown failed: {e}")
+            else:
+                log("  metric dropdown not found")
         except Exception as e:
-            log(f"  download wizard failed: {e}")
-    else:
-        log("  'Download Report' button not found")
+            log(f"  outlet-level mapping failed: {e}")
 
     (OUT/"result.txt").write_text("\n".join(log_lines), encoding="utf-8")
     log(f"\nArtifacts in: {OUT.resolve()}")
