@@ -83,42 +83,64 @@ with sync_playwright() as pw:
     else:
         log("[4] No password field — login may have changed."); shot(page, "login_fail")
 
-    # Detect login by PAGE CONTENT, not URL. Swiggy is a SPA: the URL can transiently
-    # sit at /food/login or use hash routing (#!/login) while the dashboard is already up.
+    # Wait for REAL logged-in content (not just URL) + a settle, so the SPA finishes booting
+    # and persists its auth token. The URL alone is unreliable (it flickers through /login).
     log("[5b] Waiting for post-login render…")
-    def logged_in_now():
-        for sel in ["text=/Growth home/i", "text=/Growth Boosters/i", "text=/Logout/i",
-                    "text=/Sign out/i", "text=/All Benefits/i"]:
+    def home_ready():
+        for sel in ["text=/Growth Boosters/i", "text=/All Benefits/i", "text=/Run discounts/i",
+                    "a:has-text('Reports')", "text=/Growth home/i"]:
             try:
                 if page.locator(sel).first.count() and page.locator(sel).first.is_visible():
                     return True
             except Exception: pass
-        u = page.url.lower()
-        return ("/food/" in u) and not u.split("/food/", 1)[-1].lstrip("#!/").startswith("login")
-    for _ in range(25):
-        if logged_in_now(): break
+        return False
+    for _ in range(35):
+        if home_ready(): break
         time.sleep(1)
+    time.sleep(4)  # let the loading spinner clear and the auth token persist
     shot(page, "07_post_login")
-    log(f"  authenticated={logged_in_now()}, URL now: {page.url}")
+    log(f"  home_ready={home_ready()}, URL now: {page.url}")
 
-    # ---------- BUSINESS METRICS ----------
-    # Navigate regardless — the session cookie carries us even if the URL looked like login.
-    log(f"[6] Opening {METRICS_URL}")
-    page.goto(METRICS_URL, wait_until="domcontentloaded", timeout=60000)
-    metrics_ok = False
-    for _ in range(25):
+    # ---------- GO TO BUSINESS METRICS (in-app nav, NOT a hard reload) ----------
+    # A hard goto() to the deep URL re-boots the SPA and bounces to login.
+    # Clicking the in-app "Reports" link is a client-side route and keeps the session.
+    log("[6] Navigating to Reports / Business Metrics (in-app click)")
+    def metrics_loaded():
+        for sel in ["text=/Net Sales/i", "text=/Business Reports/i", "text=/Download Report/i"]:
+            try:
+                if page.locator(sel).first.count(): return True
+            except Exception: pass
+        return False
+    reached = False
+    nav = first_visible(page, [
+        'a[href*="business-metrics"]', 'a[href*="reports" i]',
+        "nav a:has-text('Reports')", "a:has-text('Reports')",
+        "text=/^Reports$/i", "*:has-text('REPORTS')"
+    ])
+    if nav:
         try:
-            if (page.locator("text=/Net Sales/i").first.count() or
-                page.locator("text=/Business Reports/i").first.count()):
-                metrics_ok = True; break
-        except Exception: pass
-        time.sleep(1)
+            nav.click()
+            for _ in range(25):
+                if metrics_loaded(): reached = True; break
+                time.sleep(1)
+        except Exception as e:
+            log(f"  Reports nav click failed: {e}")
+    else:
+        log("  Reports nav link not found on home — see 07_post_login.png")
+    if not reached:
+        log("  In-app nav didn't reach metrics; trying direct URL as fallback")
+        try:
+            page.goto(METRICS_URL, wait_until="domcontentloaded", timeout=60000)
+            for _ in range(25):
+                if metrics_loaded(): reached = True; break
+                time.sleep(1)
+        except Exception as e:
+            log(f"  direct nav failed: {e}")
     time.sleep(2)
     shot(page, "10_business_metrics")
-    log(f"  URL now: {page.url}; metrics_loaded={metrics_ok}")
-    if not metrics_ok:
-        log("  (Net Sales/Business Reports text not detected — check 10_business_metrics.png; "
-            "may be a render delay or layout change.)")
+    log(f"  URL now: {page.url}; metrics_loaded={reached}")
+    if not reached:
+        log("  (Business Metrics not detected — see 10_business_metrics.png.)")
 
     # ---------- DOWNLOAD REPORT ----------
     dl_btn = first_visible(page, [
