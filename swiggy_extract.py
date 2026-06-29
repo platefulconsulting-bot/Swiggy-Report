@@ -157,8 +157,26 @@ with sync_playwright() as pw:
     # Mechanics: metric = a "Filters" panel (pick one radio + Apply);
     # date = Today/Yesterday/This Week/Last Week/This Month/Custom;
     # rows = Name | RID | value | delta.  Expand DATES/METRICS once confirmed.
-    DATES   = ["Yesterday", "This Week", "This Month"]       # Previous Day, Weekly, MTD
-    METRICS = ["Net Sales", "Net AOV", "Kitchen Prep Time"]  # expand to full spec once date-switch confirmed
+    # ---- scrape scope ----
+    # Efficient default (matches the open decision): headline Net Sales at all 3 ranges,
+    # every other metric at MTD only. Set ALL_AT_ALL=True to scrape every metric at all 3 ranges.
+    ALL_AT_ALL     = False
+    HEADLINE       = "Net Sales"
+    HEADLINE_DATES = ["Yesterday", "This Week", "This Month"]   # Previous Day, Weekly, MTD
+    PRIMARY_DATE   = "This Month"                                # MTD for everything else
+    METRICS = [
+        "Net Sales", "Delivered Orders", "Net AOV", "Restaurant Cancelled Orders", "Cancelled Order Loss",
+        "CPC Driven Sales", "CPC Orders", "Total CPC Spends", "CPC Menu Visits", "ROAS", "CPC Ads Depth",
+        "CBA Driven Sales", "CBA Orders", "Total CBA Spends", "Ad Impressions", "CBA Menu Visits",
+        "Avg Cost Per Impressions", "CBA Ads Depth",
+        "Sales via Discounts", "Discounted Orders %", "Discount Given by Restaurant(RDGMV)",
+        "Discount GMV %", "Restaurant Discount Per Order(RDPO)",
+        "Online Availability %", "Kitchen Prep Time", "Food Ready Accuracy (MFR)", "Delayed Orders (> 10 mins)",
+    ]
+    if ALL_AT_ALL:
+        WORK = [(d, m) for d in HEADLINE_DATES for m in METRICS]
+    else:
+        WORK = [(d, HEADLINE) for d in HEADLINE_DATES] + [(PRIMARY_DATE, m) for m in METRICS if m != HEADLINE]
     current_metric = "Net Sales"
     shot_filters_done = {"v": False}
 
@@ -227,70 +245,111 @@ with sync_playwright() as pw:
             def read_rows():
                 out = []
                 try:
-                    anchors = page.locator("text=/RID:/")
-                    for i in range(anchors.count()):
-                        txt = ""
-                        for up in ["xpath=ancestor::*[self::div][2]", "xpath=ancestor::*[self::div][1]", "xpath=.."]:
+                    rows = page.locator('[class*="ListItemContainer-business-metrics-mfe"]')
+                    n = rows.count()
+                    if n == 0:
+                        anchors = page.locator("text=/RID:/")
+                        for i in range(anchors.count()):
                             try:
-                                t = anchors.nth(i).locator(up).inner_text().strip()
-                                if "RID" in t and len(t) > len(txt): txt = t
-                            except Exception: pass
-                        out.append(txt.replace("\n", " | "))
+                                t = anchors.nth(i).locator("xpath=ancestor::*[self::div][2]").inner_text().strip()
+                            except Exception:
+                                t = ""
+                            out.append((t.replace("\n", " | "), ""))
+                        return out
+                    for i in range(n):
+                        row = rows.nth(i)
+                        try:
+                            txt = row.inner_text().strip().replace("\n", " | ")
+                        except Exception:
+                            txt = ""
+                        if "RID" not in txt:
+                            continue
+                        direction = ""
+                        try:
+                            img = row.locator("img").first
+                            if img.count():
+                                a = (img.get_attribute("alt") or "")
+                                s = (img.get_attribute("src") or "")
+                                blob = (a + " " + s).lower()
+                                if any(k in blob for k in ["up", "increase", "rise", "positiv", "green", "growth"]):
+                                    direction = "up"
+                                elif any(k in blob for k in ["down", "decrease", "drop", "fall", "negativ", "red", "decline"]):
+                                    direction = "down"
+                                if not read_rows.logged:
+                                    log(f"   ARROW alt='{a}' src='{s[:90]}'"); read_rows.logged = True
+                        except Exception:
+                            pass
+                        out.append((txt, direction))
                 except Exception as e:
                     log(f"   read_rows error: {e}")
                 return out
+            read_rows.logged = False
 
             def parse_row(raw):
                 parts = [p.strip() for p in raw.split("|")]
                 name = parts[0] if parts else ""
-                rid = None; locality = ""; val = None
-                currency = False; no_data = False; delta = None; compare = ""
-                for p in parts[1:]:
-                    if p.startswith("RID:"):
-                        m = re.search(r"RID:\s*(\d+),?\s*(.*)", p)
-                        if m: rid = m.group(1); locality = m.group(2).strip()
-                    elif p.startswith("vs "):
-                        compare = p
-                    elif p.endswith("%"):
-                        try: delta = float(p.replace("%", "").strip())
-                        except Exception: pass
-                    elif p == "-":
+                rid = None; locality = ""
+                ridx = next((i for i, p in enumerate(parts) if p.startswith("RID:")), None)
+                if ridx is not None:
+                    m = re.search(r"RID:\s*(\d+),?\s*(.*)", parts[ridx])
+                    if m: rid = m.group(1); locality = m.group(2).strip()
+                    rest = parts[ridx + 1:]
+                else:
+                    rest = parts[1:]
+                val = None; currency = False; no_data = False; is_pct = False
+                delta = None; compare = ""
+                if rest:
+                    v = rest[0]
+                    if v in ("-", ""):
                         no_data = True
-                    elif p:
-                        pv = p
-                        if "₹" in pv: currency = True; pv = pv.replace("₹", "").replace(",", "")
-                        try: val = float(pv)
+                    else:
+                        if "₹" in v: currency = True
+                        vv = v.replace("₹", "").replace(",", "").strip()
+                        if vv.endswith("%"): is_pct = True; vv = vv[:-1].strip()
+                        try: val = float(vv)
                         except Exception: pass
+                if len(rest) >= 2 and rest[1].endswith("%"):
+                    try: delta = float(rest[1].replace("%", "").strip())
+                    except Exception: pass
+                for p in rest[1:]:
+                    if p.startswith("vs "): compare = p
                 return {"name": name, "rid": rid, "locality": locality, "value": val,
-                        "currency": currency, "no_data": no_data, "delta_pct": delta,
-                        "compare": compare, "raw": raw}
+                        "currency": currency, "is_pct": is_pct, "no_data": no_data,
+                        "delta_pct": delta, "compare": compare, "raw": raw}
+
+            from collections import OrderedDict
+            import csv
+            date_metrics = OrderedDict()
+            for d, m in WORK:
+                date_metrics.setdefault(d, [])
+                if m not in date_metrics[d]:
+                    date_metrics[d].append(m)
 
             data = []
-            html_dumped = False
-            for d in DATES:
+            for d, mets in date_metrics.items():
                 dok = set_date(d)
-                log(f"[8] date='{d}' set={dok}")
-                for m in METRICS:
+                log(f"[8] date='{d}' set={dok} ({len(mets)} metrics)")
+                for m in mets:
                     mok = set_metric(m)
                     rws = read_rows()
                     log(f"   metric='{m}' set={mok} rows={len(rws)}")
-                    if not html_dumped and rws:
-                        try:
-                            html = page.locator("text=/RID:/").first.locator(
-                                "xpath=ancestor::*[self::div][2]").evaluate("el => el.outerHTML")
-                            log("   ROW_HTML(first): " + html[:700].replace("\n", " "))
-                            html_dumped = True
-                        except Exception as e:
-                            log(f"   html dump failed: {e}")
-                    for r in rws:
-                        p = parse_row(r); p["date"] = d; p["metric"] = m
-                        log(f"     DATA | {d} | {m} | rid={p['rid']} val={p['value']} cur={p['currency']} d%={p['delta_pct']} {p['compare']}")
+                    for txt, direction in rws:
+                        p = parse_row(txt)
+                        p["date"] = d; p["metric"] = m; p["direction"] = direction
                         data.append(p)
+                        log(f"     DATA | {d} | {m} | rid={p['rid']} val={p['value']} cur={p['currency']} pct={p['is_pct']} d%={p['delta_pct']} dir={direction} {p['compare']}")
                 shot(page, f"scrape_{d.replace(' ', '_')}")
 
             with open(OUT / "scrape.json", "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            log(f"[9] wrote {len(data)} rows -> scrape.json")
+            with open(OUT / "scrape.csv", "w", newline="", encoding="utf-8") as f:
+                w = csv.writer(f)
+                w.writerow(["date", "metric", "rid", "name", "locality", "value",
+                            "currency", "is_pct", "delta_pct", "direction", "compare", "no_data"])
+                for p in data:
+                    w.writerow([p["date"], p["metric"], p["rid"], p["name"], p["locality"], p["value"],
+                                p["currency"], p["is_pct"], p["delta_pct"], p["direction"], p["compare"], p["no_data"]])
+            log(f"[9] wrote {len(data)} rows -> scrape.json + scrape.csv")
         except Exception as e:
             log(f"  scraper failed: {e}")
 
