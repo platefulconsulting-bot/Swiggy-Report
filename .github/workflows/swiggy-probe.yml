@@ -29,7 +29,7 @@ jobs:
           SWIGGY_USER: ${{ secrets.SWIGGY_USER }}
           SWIGGY_PASS: ${{ secrets.SWIGGY_PASS }}
           HEADLESS: 'true'
-        run: python swiggy_login_probe.py
+        run: python swiggy_extract.py
 
       - name: Upload screenshots + log
         if: always()        # upload even if the probe exits non-zero, so we always get evidence
