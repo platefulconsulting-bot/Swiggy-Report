@@ -80,26 +80,45 @@ with sync_playwright() as pw:
         if sub:
             try: sub.click(); log("[5] Submitted login")
             except Exception as e: log(f"  submit failed: {e}")
-        time.sleep(6); log(f"  URL now: {page.url}")
     else:
-        log("[4] No password field — login may have changed. Check screenshots."); shot(page, "login_fail")
+        log("[4] No password field — login may have changed."); shot(page, "login_fail")
 
-    if "login" in page.url.lower():
-        log("!! Still on a login URL — not authenticated. Stopping."); shot(page, "auth_fail")
-        (OUT/"result.txt").write_text("\n".join(log_lines)); ctx.close(); browser.close(); sys.exit(0)
+    # Detect login by PAGE CONTENT, not URL. Swiggy is a SPA: the URL can transiently
+    # sit at /food/login or use hash routing (#!/login) while the dashboard is already up.
+    log("[5b] Waiting for post-login render…")
+    def logged_in_now():
+        for sel in ["text=/Growth home/i", "text=/Growth Boosters/i", "text=/Logout/i",
+                    "text=/Sign out/i", "text=/All Benefits/i"]:
+            try:
+                if page.locator(sel).first.count() and page.locator(sel).first.is_visible():
+                    return True
+            except Exception: pass
+        u = page.url.lower()
+        return ("/food/" in u) and not u.split("/food/", 1)[-1].lstrip("#!/").startswith("login")
+    for _ in range(25):
+        if logged_in_now(): break
+        time.sleep(1)
+    shot(page, "07_post_login")
+    log(f"  authenticated={logged_in_now()}, URL now: {page.url}")
 
     # ---------- BUSINESS METRICS ----------
+    # Navigate regardless — the session cookie carries us even if the URL looked like login.
     log(f"[6] Opening {METRICS_URL}")
     page.goto(METRICS_URL, wait_until="domcontentloaded", timeout=60000)
-    # wait for a known element
-    for _ in range(20):
+    metrics_ok = False
+    for _ in range(25):
         try:
-            if page.locator("text=/Net Sales/i").first.count(): break
+            if (page.locator("text=/Net Sales/i").first.count() or
+                page.locator("text=/Business Reports/i").first.count()):
+                metrics_ok = True; break
         except Exception: pass
         time.sleep(1)
     time.sleep(2)
     shot(page, "10_business_metrics")
-    log(f"  URL now: {page.url}")
+    log(f"  URL now: {page.url}; metrics_loaded={metrics_ok}")
+    if not metrics_ok:
+        log("  (Net Sales/Business Reports text not detected — check 10_business_metrics.png; "
+            "may be a render delay or layout change.)")
 
     # ---------- DOWNLOAD REPORT ----------
     dl_btn = first_visible(page, [
