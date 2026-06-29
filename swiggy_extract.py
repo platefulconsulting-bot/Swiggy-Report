@@ -180,6 +180,38 @@ with sync_playwright() as pw:
     current_metric = "Net Sales"
     shot_filters_done = {"v": False}
 
+    def push_supabase(rows):
+        url = os.environ.get("SUPABASE_URL"); key = os.environ.get("SUPABASE_SERVICE_KEY")
+        if not url or not key:
+            log("[10] Supabase: skipped (SUPABASE_URL / SUPABASE_SERVICE_KEY not set)"); return
+        import urllib.request, urllib.error
+        from datetime import datetime, timezone, timedelta
+        cap = datetime.now(timezone(timedelta(hours=5, minutes=30))).date().isoformat()  # IST date
+        payload = []
+        for p in rows:
+            if not p.get("rid"): continue
+            payload.append({
+                "captured_on": cap, "rid": p["rid"], "outlet_name": p["name"],
+                "locality": p["locality"], "metric": p["metric"], "period": p["date"],
+                "value": p["value"], "is_currency": p["currency"], "is_pct": p["is_pct"],
+                "delta_pct": p["delta_pct"], "direction": (p["direction"] or None),
+                "compare_label": (p["compare"] or None), "no_data": p["no_data"],
+            })
+        body = json.dumps(payload).encode("utf-8")
+        endpoint = url.rstrip("/") + "/rest/v1/swiggy_metrics?on_conflict=captured_on,rid,metric,period"
+        req = urllib.request.Request(endpoint, data=body, method="POST", headers={
+            "apikey": key, "Authorization": "Bearer " + key,
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates,return=minimal",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r:
+                log(f"[10] Supabase: upserted {len(payload)} rows (HTTP {r.status})")
+        except urllib.error.HTTPError as e:
+            log(f"[10] Supabase HTTP {e.code}: {e.read().decode()[:300]}")
+        except Exception as e:
+            log(f"[10] Supabase error: {e}")
+
     log("[7] Opening Outlet Level Details")
     ol = first_visible(page, ["text=/See Outlet Level Data/i", "*:has-text('Outlet Level Data')"])
     if not ol:
@@ -270,20 +302,21 @@ with sync_playwright() as pw:
                             if img.count():
                                 a = (img.get_attribute("alt") or "")
                                 s = (img.get_attribute("src") or "")
-                                blob = (a + " " + s).lower()
-                                if any(k in blob for k in ["up", "increase", "rise", "positiv", "green", "growth"]):
+                                fname = s.split("?")[0].rstrip("/").split("/")[-1].lower()
+                                blob = (a.lower() + " " + fname)
+                                if any(k in blob for k in ["up", "increase", "rise", "uptrend", "ascend", "arrow_up", "caret_up"]):
                                     direction = "up"
-                                elif any(k in blob for k in ["down", "decrease", "drop", "fall", "negativ", "red", "decline"]):
+                                elif any(k in blob for k in ["down", "decrease", "fall", "drop", "decline", "downtrend", "descend", "arrow_down", "caret_down"]):
                                     direction = "down"
-                                if not read_rows.logged:
-                                    log(f"   ARROW alt='{a}' src='{s[:90]}'"); read_rows.logged = True
+                                if read_rows.logc < 4:
+                                    log(f"   ARROW[{read_rows.logc}] alt='{a}' file='{fname}' src='{s}'"); read_rows.logc += 1
                         except Exception:
                             pass
                         out.append((txt, direction))
                 except Exception as e:
                     log(f"   read_rows error: {e}")
                 return out
-            read_rows.logged = False
+            read_rows.logc = 0
 
             def parse_row(raw):
                 parts = [p.strip() for p in raw.split("|")]
@@ -350,6 +383,10 @@ with sync_playwright() as pw:
                     w.writerow([p["date"], p["metric"], p["rid"], p["name"], p["locality"], p["value"],
                                 p["currency"], p["is_pct"], p["delta_pct"], p["direction"], p["compare"], p["no_data"]])
             log(f"[9] wrote {len(data)} rows -> scrape.json + scrape.csv")
+            try:
+                push_supabase(data)
+            except Exception as e:
+                log(f"[10] Supabase wrapper error: {e}")
         except Exception as e:
             log(f"  scraper failed: {e}")
 
