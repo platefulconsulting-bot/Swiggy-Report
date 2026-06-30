@@ -1,40 +1,41 @@
-name: Swiggy Login Probe
+name: swiggy-scrape
 
-# Manual trigger only — click "Run workflow" in the Actions tab.
-# This logs into ONE Swiggy account from a GitHub runner IP and reports
-# whether it goes straight in or hits an OTP/captcha. It does NOT scrape.
 on:
-  workflow_dispatch:
+  workflow_dispatch:        # manual "Run workflow" button
+  # schedule:
+  #   - cron: "30 2 * * *"  # 08:00 IST daily (02:30 UTC) — uncomment to automate
 
 jobs:
-  probe:
+  scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 330    # headroom for a large fleet (~2.5h for 50 accounts)
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.11"
 
       - name: Install Playwright + Chromium
         run: |
           pip install playwright
           python -m playwright install --with-deps chromium
 
-      - name: Run login probe
+      - name: Run scraper
         env:
+          # ---- credentials (use SWIGGY_ACCOUNTS for multi-account; the two below are the single-account fallback) ----
+          SWIGGY_ACCOUNTS: ${{ secrets.SWIGGY_ACCOUNTS }}
           SWIGGY_USER: ${{ secrets.SWIGGY_USER }}
           SWIGGY_PASS: ${{ secrets.SWIGGY_PASS }}
-          HEADLESS: 'true'
+          # ---- Supabase ----
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          # HEADLESS: "true"
+          # SHOT_DEBUG: "1"   # screenshot every account (default: first only)
         run: python swiggy_extract.py
 
-      - name: Upload screenshots + log
-        if: always()        # upload even if the probe exits non-zero, so we always get evidence
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: swiggy-probe-output
+          name: swiggy-scrape-output
           path: swiggy_probe_out/
-          if-no-files-found: warn
