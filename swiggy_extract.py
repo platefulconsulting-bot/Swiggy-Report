@@ -278,18 +278,36 @@ def run_account(browser, acct, do_shots):
             except Exception: pass
             time.sleep(1)
 
-        # ---------- OUTLET LEVEL DETAILS ----------
+        # ---------- OUTLET LEVEL DETAILS (tolerant) ----------
+        # Some logins (single outlet, or ones that skip city/outlet selection) never show
+        # the "See Outlet Level Data" link — the data is already on the page. Handle any
+        # selection prompt, click the drill-down if present, and DO NOT bail if it's absent.
+        def clear_selection_prompts():
+            for sel in ["button:has-text('All Outlets')", "button:has-text('Select All')",
+                        "button:has-text('All Cities')", "text=/^Select All Outlets$/i",
+                        "button:has-text('Apply')", "button:has-text('Continue')", "button:has-text('Proceed')"]:
+                try:
+                    el = page.locator(sel).first
+                    if el.count() and el.is_visible():
+                        el.click(); time.sleep(1.2)
+                except Exception:
+                    pass
+
+        clear_selection_prompts()
         ol = first_visible(page, ["text=/See Outlet Level Data/i", "*:has-text('Outlet Level Data')"])
-        if not ol:
-            log(f"[{label}] 'See Outlet Level Data' not found."); shot(page, "no_outlet_link", force=True)
-            return rows, "no_outlet_level"
-        ol.click()
-        for _ in range(20):
+        if ol:
             try:
-                if page.locator("text=/Outlet Level Details/i").first.count(): break
-            except Exception: pass
-            time.sleep(1)
-        time.sleep(2)
+                ol.click()
+                for _ in range(20):
+                    if page.locator("text=/Outlet Level Details/i").first.count(): break
+                    time.sleep(1)
+                time.sleep(2)
+            except Exception as e:
+                log(f"[{label}] outlet-level click failed: {e}")
+            clear_selection_prompts()
+        else:
+            log(f"[{label}] no drill-down link — will scrape current page (likely single-outlet).")
+            shot(page, "no_outlet_link", force=True)
         if do_shots: shot(page, "13_outlet_level")
 
         cur = {"m": "Net Sales"}  # currently-selected metric (pill label)
@@ -482,6 +500,71 @@ def run_account(browser, acct, do_shots):
                 log(f"   PROBE error: {e}"); shot(page, "C_error", force=True)
             return rows, "probe_custom_done"
 
+        def dump_dom(tag):
+            try: (OUT / f"{tag}.html").write_text(page.content(), encoding="utf-8")
+            except Exception: pass
+            try: (OUT / f"{tag}.txt").write_text(page.inner_text("body"), encoding="utf-8")
+            except Exception: pass
+            shot(page, tag, force=True)
+
+        # summary-tile label -> canonical metric (single-outlet pages show tiles, not a row list)
+        TILE_SYNONYMS = [
+            ("Net Sales", ["net sales"]),
+            ("Delivered Orders", ["delivered orders", "delivered order", "delivered"]),
+            ("Net AOV", ["net aov", "aov", "average order value"]),
+            ("Restaurant Cancelled Orders", ["restaurant cancelled orders", "cancelled orders", "cancelled order"]),
+            ("Cancelled Order Loss", ["cancelled order loss", "cancellation loss"]),
+            ("Kitchen Prep Time", ["kitchen prep time", "avg prep time", "average prep time", "prep time", "kpt"]),
+            ("Online Availability %", ["online availability", "online %", "online"]),
+            ("Food Ready Accuracy (MFR)", ["food ready accuracy", "mfr", "food ready"]),
+            ("Delayed Orders (> 10 mins)", ["delayed orders", "delayed order"]),
+            ("Sales via Discounts", ["sales via discounts", "discount sales"]),
+            ("Total CPC Spends", ["total cpc spends", "cpc spends", "cpc spend"]),
+            ("CPC Driven Sales", ["cpc driven sales", "cpc sales"]),
+            ("Total CBA Spends", ["total cba spends", "cba spends", "cba spend"]),
+            ("Ad Impressions", ["ad impressions", "impressions"]),
+        ]
+        def _val_from(s):
+            s = (s or "").strip()
+            m = re.search(r"₹\s*([\d,]+(?:\.\d+)?)", s)
+            if m: return float(m.group(1).replace(",", "")), True, False
+            m = re.search(r"([\d,]+(?:\.\d+)?)\s*%", s)
+            if m: return float(m.group(1).replace(",", "")), False, True
+            m = re.search(r"([\d,]+(?:\.\d+)?)\s*min", s, re.I)
+            if m: return float(m.group(1).replace(",", "")), False, False
+            m = re.fullmatch(r"([\d,]+(?:\.\d+)?)", s)
+            if m: return float(m.group(1).replace(",", "")), False, False
+            return None, False, False
+        def read_tiles(d):
+            try: body = page.inner_text("body")
+            except Exception: return []
+            rm = re.search(r"RID[:\s]*([0-9]{3,})", body)
+            rid = rm.group(1) if rm else ""
+            lines = [l.strip() for l in body.split("\n") if l.strip()]
+            out = []; used = set()
+            for i, l in enumerate(lines):
+                low = l.lower()
+                for canon, syns in TILE_SYNONYMS:
+                    if canon in used: continue
+                    hit = any(low == sy or low.startswith(sy + " ") or low == sy + ":" for sy in syns)
+                    if not hit: continue
+                    val = None; isc = False; isp = False
+                    tail = l[len(l):]  # nothing; value usually on following line(s)
+                    for j in range(i, min(i + 3, len(lines))):
+                        cand = lines[j] if j > i else tail
+                        v, c, p = _val_from(cand)
+                        if v is None and j > i:
+                            v, c, p = _val_from(lines[j])
+                        if v is not None:
+                            val, isc, isp = v, c, p; break
+                    if val is not None:
+                        out.append({"rid": rid, "name": label, "locality": "", "value": val,
+                                    "currency": isc, "is_pct": isp, "delta_pct": None, "compare": "",
+                                    "no_data": False, "account": label, "date": d, "metric": canon,
+                                    "direction": "", "sentiment": ""})
+                        used.add(canon)
+            return out
+
         from collections import OrderedDict
         date_metrics = OrderedDict()
         for d, m in WORK:
@@ -489,7 +572,28 @@ def run_account(browser, acct, do_shots):
             if m not in date_metrics[d]:
                 date_metrics[d].append(m)
 
+        # ---- mode detection: is there an outlet row list, or a single-outlet tile page? ----
+        set_date("This Month")
+        single_mode = len(read_rows(diag=True)) == 0
         acct_rids = set()
+        if single_mode:
+            safe = re.sub(r"[^A-Za-z0-9]+", "_", label)[:24]
+            log(f"[{label}] MODE: single-outlet/tile (no row list) — dumping layout as single_{safe}.*")
+            dump_dom(f"single_{safe}")
+            for d in ["Yesterday", "This Week", "This Month"]:
+                dok = set_date(d)
+                trows = read_tiles(d)
+                for p in trows:
+                    if p.get("rid"): acct_rids.add(p["rid"])
+                rows.extend(trows)
+                log(f"[{label}] [tiles] date='{d}' set={dok} -> {len(trows)} metrics")
+            if not rows:
+                log(f"[{label}] tile read empty — layout dumped for fixing.")
+                return rows, "single_dumped"
+            log(f"[{label}] OUTLETS SEEN: {len(acct_rids)} distinct RIDs -> {sorted(acct_rids)}")
+            log(f"[{label}] scraped {len(rows)} rows (single-outlet)")
+            return rows, "ok_single"
+
         for d, mets in date_metrics.items():
             dok = set_date(d)
             log(f"[{label}] [8] date='{d}' set={dok} ({len(mets)} metrics)")
