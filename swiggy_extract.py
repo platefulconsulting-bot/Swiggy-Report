@@ -507,22 +507,14 @@ def run_account(browser, acct, do_shots):
             except Exception: pass
             shot(page, tag, force=True)
 
-        # summary-tile label -> canonical metric (single-outlet pages show tiles, not a row list)
-        TILE_SYNONYMS = [
-            ("Net Sales", ["net sales"]),
-            ("Delivered Orders", ["delivered orders", "delivered order", "delivered"]),
-            ("Net AOV", ["net aov", "aov", "average order value"]),
-            ("Restaurant Cancelled Orders", ["restaurant cancelled orders", "cancelled orders", "cancelled order"]),
-            ("Cancelled Order Loss", ["cancelled order loss", "cancellation loss"]),
-            ("Kitchen Prep Time", ["kitchen prep time", "avg prep time", "average prep time", "prep time", "kpt"]),
-            ("Online Availability %", ["online availability", "online %", "online"]),
-            ("Food Ready Accuracy (MFR)", ["food ready accuracy", "mfr", "food ready"]),
-            ("Delayed Orders (> 10 mins)", ["delayed orders", "delayed order"]),
-            ("Sales via Discounts", ["sales via discounts", "discount sales"]),
-            ("Total CPC Spends", ["total cpc spends", "cpc spends", "cpc spend"]),
-            ("CPC Driven Sales", ["cpc driven sales", "cpc sales"]),
-            ("Total CBA Spends", ["total cba spends", "cba spends", "cba spend"]),
-            ("Ad Impressions", ["ad impressions", "impressions"]),
+        # single-outlet "Business Reports" tile labels == our canonical metric names (exact match)
+        TILE_METRICS = [
+            "Net Sales", "Delivered Orders", "Net AOV", "Restaurant Cancelled Orders", "Cancelled Order Loss",
+            "CPC Driven Sales", "CPC Orders", "Total CPC Spends", "CPC Menu Visits", "ROAS", "CPC Ads Depth",
+            "CBA Driven Sales", "CBA Orders", "Total CBA Spends", "Ad Impressions", "CBA Menu Visits",
+            "Avg Cost Per Impressions", "CBA Ads Depth", "Sales via Discounts", "Discounted Orders %",
+            "Discount Given by Restaurant(RDGMV)", "Discount GMV %", "Restaurant Discount Per Order(RDPO)",
+            "Online Availability %", "Kitchen Prep Time", "Food Ready Accuracy (MFR)", "Delayed Orders (> 10 mins)",
         ]
         def _val_from(s):
             s = (s or "").strip()
@@ -535,34 +527,65 @@ def run_account(browser, acct, do_shots):
             m = re.fullmatch(r"([\d,]+(?:\.\d+)?)", s)
             if m: return float(m.group(1).replace(",", "")), False, False
             return None, False, False
+
+        def set_date_filter(d):
+            """Business Reports (single-outlet) date control: open Filter -> Date -> option -> Apply."""
+            opened = False
+            for sel in ["button:has-text('Filter')", "text=/^Filter$/",
+                        "text=/Today,\\s*\\d/", "text=/Yesterday,\\s*\\d/", "text=/This (Week|Month),/"]:
+                try:
+                    el = page.locator(sel).first
+                    if el.count() and el.is_visible():
+                        el.click(); time.sleep(1.0); opened = True; break
+                except Exception: pass
+            try:
+                dt = page.get_by_text("Date", exact=True).first
+                if dt.count() and dt.is_visible(): dt.click(); time.sleep(0.4)
+            except Exception: pass
+            picked = False
+            try:
+                o = page.get_by_text(d, exact=True).first
+                if o.count(): o.click(); time.sleep(0.4); picked = True
+            except Exception: pass
+            try:
+                ap = page.get_by_text("Apply", exact=True).first
+                if ap.count() and ap.is_visible(): ap.click()
+            except Exception: pass
+            time.sleep(2.5)
+            return picked and opened
+
         def read_tiles(d):
             try: body = page.inner_text("body")
             except Exception: return []
             rm = re.search(r"RID[:\s]*([0-9]{3,})", body)
             rid = rm.group(1) if rm else ""
             lines = [l.strip() for l in body.split("\n") if l.strip()]
-            out = []; used = set()
+            idx = {}
             for i, l in enumerate(lines):
-                low = l.lower()
-                for canon, syns in TILE_SYNONYMS:
-                    if canon in used: continue
-                    hit = any(low == sy or low.startswith(sy + " ") or low == sy + ":" for sy in syns)
-                    if not hit: continue
-                    val = None; isc = False; isp = False
-                    tail = l[len(l):]  # nothing; value usually on following line(s)
-                    for j in range(i, min(i + 3, len(lines))):
-                        cand = lines[j] if j > i else tail
-                        v, c, p = _val_from(cand)
-                        if v is None and j > i:
-                            v, c, p = _val_from(lines[j])
-                        if v is not None:
-                            val, isc, isp = v, c, p; break
-                    if val is not None:
-                        out.append({"rid": rid, "name": label, "locality": "", "value": val,
-                                    "currency": isc, "is_pct": isp, "delta_pct": None, "compare": "",
-                                    "no_data": False, "account": label, "date": d, "metric": canon,
-                                    "direction": "", "sentiment": ""})
-                        used.add(canon)
+                if l in TILE_METRICS and l not in idx:
+                    idx[l] = i
+            out = []
+            for canon, i in idx.items():
+                val = isc = isp = None
+                # value = first value-looking line right after the label (scan up to 2 lines)
+                for j in range(i + 1, min(i + 3, len(lines))):
+                    v, c, p = _val_from(lines[j])
+                    if v is not None:
+                        val, isc, isp = v, c, p; vi = j; break
+                if val is None:
+                    continue
+                # delta = a bare "N%" line shortly after the value, paired with a "vs ..." line
+                delta = None
+                for j in range(vi + 1, min(vi + 3, len(lines))):
+                    dm = re.fullmatch(r"(\d+(?:\.\d+)?)%", lines[j])
+                    if dm:
+                        nxt = lines[j + 1] if j + 1 < len(lines) else ""
+                        if nxt.lower().startswith("vs") or True:
+                            delta = float(dm.group(1)); break
+                out.append({"rid": rid, "name": label, "locality": "", "value": val,
+                            "currency": bool(isc), "is_pct": bool(isp), "delta_pct": delta, "compare": "",
+                            "no_data": False, "account": label, "date": d, "metric": canon,
+                            "direction": "", "sentiment": ""})
             return out
 
         from collections import OrderedDict
@@ -573,7 +596,6 @@ def run_account(browser, acct, do_shots):
                 date_metrics[d].append(m)
 
         # ---- mode detection: is there an outlet row list, or a single-outlet tile page? ----
-        set_date("This Month")
         single_mode = len(read_rows(diag=True)) == 0
         acct_rids = set()
         if single_mode:
@@ -581,7 +603,7 @@ def run_account(browser, acct, do_shots):
             log(f"[{label}] MODE: single-outlet/tile (no row list) — dumping layout as single_{safe}.*")
             dump_dom(f"single_{safe}")
             for d in ["Yesterday", "This Week", "This Month"]:
-                dok = set_date(d)
+                dok = set_date_filter(d)
                 trows = read_tiles(d)
                 for p in trows:
                     if p.get("rid"): acct_rids.add(p["rid"])
@@ -654,7 +676,7 @@ log(f"[9] wrote {len(all_rows)} rows -> scrape.json + scrape.csv")
 log("=== SUMMARY ===")
 for lbl, cnt, st in summary:
     log(f"  {lbl}: {cnt} rows  [{st}]")
-fails = [s for s in summary if s[2] != "ok"]
+fails = [s for s in summary if s[2] not in ("ok", "ok_single")]
 if fails:
     log(f"  !! {len(fails)} account(s) did not complete cleanly: " + ", ".join(f"{l} ({st})" for l, c, st in fails))
 
