@@ -75,7 +75,7 @@ if _raw and _raw.strip():
         u, p = a.get("user"), a.get("pass")
         if not u or not p:
             log(f"[skip] account[{i}] (label={a.get('label','?')}) missing user/pass — ignored"); continue
-        ACCOUNTS.append({"label": str(a.get("label") or u), "user": str(u), "pass": str(p)})
+        ACCOUNTS.append({"label": str(a.get("label") or u), "user": str(u), "pass": str(p), "rid": str(a.get("rid") or "")})
     log(f"[accounts] parsed {len(ACCOUNTS)} valid of {len(parsed)} entries in SWIGGY_ACCOUNTS")
 elif os.environ.get("SWIGGY_USER") and os.environ.get("SWIGGY_PASS"):
     ACCOUNTS.append({"label": "default", "user": os.environ["SWIGGY_USER"], "pass": os.environ["SWIGGY_PASS"]})
@@ -558,7 +558,7 @@ def run_account(browser, acct, do_shots):
             try: body = page.inner_text("body")
             except Exception: return []
             rm = re.search(r"RID[:\s]*([0-9]{3,})", body)
-            rid = rm.group(1) if rm else ""
+            rid = rm.group(1) if rm else str(acct.get("rid") or "")
             lines = [l.strip() for l in body.split("\n") if l.strip()]
             idx = {}
             for i, l in enumerate(lines):
@@ -657,6 +657,23 @@ with sync_playwright() as pw:
         except Exception as e:
             log(f"[SB] {acct['label']} push error: {e}")
         time.sleep(5)  # gentle gap between accounts
+
+    # ---- one retry pass for transient login failures ----
+    retry = [ACCOUNTS[i] for i, s in enumerate(summary) if s[2] == "login_failed"]
+    if retry:
+        log(f"=== RETRY: {len(retry)} login_failed account(s) ===")
+        time.sleep(30)
+        for acct in retry:
+            rows, status = run_account(browser, acct, False)
+            all_rows.extend(rows)
+            for k, s in enumerate(summary):
+                if s[0] == acct["label"]:
+                    summary[k] = (acct["label"], len(rows), status + " (retry)")
+            try:
+                push_supabase(rows)
+            except Exception as e:
+                log(f"[SB] {acct['label']} push error: {e}")
+            time.sleep(5)
     browser.close()
 
 # write artifacts
