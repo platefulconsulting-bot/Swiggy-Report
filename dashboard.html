@@ -44,12 +44,25 @@
 
     header {
       display: flex;
-      align-items: baseline;
+      align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 12px;
       max-width: 960px;
       margin: 0 auto 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo {
+      height: 52px;
+      width: auto;
+      border-radius: 8px;
+      display: block;
     }
 
     h1 {
@@ -180,9 +193,13 @@
 
 <body>
   <header>
-    <div>
-      <h1 id="title">Sales Dashboard</h1>
-      <div class="sub" id="subtitle"></div>
+    <div class="brand">
+      <img class="logo" src="logo.png" alt="Plateful Consulting logo"
+        onerror="this.style.display='none'" />
+      <div>
+        <h1 id="title">Sales Dashboard</h1>
+        <div class="sub" id="subtitle"></div>
+      </div>
     </div>
     <div class="actions">
       <button class="primary" onclick="exportExcel()">Export to Excel</button>
