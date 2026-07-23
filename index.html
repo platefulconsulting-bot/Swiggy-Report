@@ -179,6 +179,9 @@ document.getElementById('q').addEventListener('input',render);
   if(on){ try{ pmMap = await fetchPrevMonth(live.day); }
           catch(e){ console.warn('prev-month history fetch failed, using baked map:', e.message); pmMap = PREV_MONTH; } }
   DATA = applyPM(list, pmMap);
+  // Drop outlets that are zero/blank across ALL three columns (Prev Day, MTD, Prev Month).
+  const nz = v => v!=null && Number(v)!==0;
+  DATA = DATA.filter(o => nz(o.py) || nz(o.mtd) || nz(o.pm));
   document.getElementById('asof').textContent=on?live.day:'sample';
   document.getElementById('liveTag').classList.toggle('on',on);
   document.getElementById('liveTxt').textContent=on?'live':'preview';
