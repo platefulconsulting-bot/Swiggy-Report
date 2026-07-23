@@ -123,7 +123,25 @@ async function fetchLive(){
   return {day,list:Object.values(m)};
 }
 
-function attachPM(list){for(const o of list){o.pm=(PREV_MONTH[o.rid]!=null)?PREV_MONTH[o.rid]:null}return list}
+// Previous Month = the last "This Month" Net Sales snapshot dated before the 1st of
+// the latest month, read live from Supabase history (base swiggy_metrics table).
+// Falls back to the baked PREV_MONTH map only if the history fetch fails / is offline.
+async function fetchPrevMonth(day){
+  const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+  const base=SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/swiggy_metrics';
+  const monthFirst=(day||'').slice(0,7)+'-01';                 // e.g. "2026-07-01"
+  const q="metric=eq.Net%20Sales&period=eq.This%20Month";
+  const r1=await fetch(base+"?select=captured_on&"+q+"&captured_on=lt."+monthFirst+"&order=captured_on.desc&limit=1",{headers:h});
+  if(!r1.ok) throw new Error('HTTP '+r1.status);
+  const j=await r1.json(); if(!j.length) return {};
+  const pmDate=j[0].captured_on;                               // last snapshot of the previous month
+  const r2=await fetch(base+"?select=rid,value,no_data&"+q+"&captured_on=eq."+pmDate+"&limit=20000",{headers:h});
+  if(!r2.ok) throw new Error('HTTP '+r2.status);
+  const map={};
+  for(const x of await r2.json()){ if(x.rid && !x.no_data && x.value!=null) map[x.rid]=x.value; }
+  return map;
+}
+function applyPM(list,pmMap){for(const o of list){o.pm=(pmMap[o.rid]!=null)?pmMap[o.rid]:null}return list}
 
 function render(){
   const q=(document.getElementById('q').value||'').toLowerCase();
@@ -156,7 +174,11 @@ document.getElementById('q').addEventListener('input',render);
   let live=null;
   try{ live=await fetchLive(); }catch(e){}
   const on=!!(live&&live.list.length);
-  DATA=attachPM(on?live.list:SAMPLE.map(o=>({...o})));
+  const list = on ? live.list : SAMPLE.map(o=>({...o}));
+  let pmMap = PREV_MONTH;                         // fallback: baked map (offline/sample)
+  if(on){ try{ pmMap = await fetchPrevMonth(live.day); }
+          catch(e){ console.warn('prev-month history fetch failed, using baked map:', e.message); pmMap = PREV_MONTH; } }
+  DATA = applyPM(list, pmMap);
   document.getElementById('asof').textContent=on?live.day:'sample';
   document.getElementById('liveTag').classList.toggle('on',on);
   document.getElementById('liveTxt').textContent=on?'live':'preview';
