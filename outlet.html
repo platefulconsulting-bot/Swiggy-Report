@@ -82,6 +82,18 @@ section{margin-top:30px}
 .banner{margin:18px 0 -6px;background:rgba(197,161,78,.07);border:1px solid var(--gold-soft);border-radius:10px;padding:11px 15px;font-size:12.5px;color:#cdae62}
 .banner code{background:#000;padding:2px 6px;border-radius:5px;color:#e7c873;font-size:11.5px}
 .hidden{display:none}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--panel);vertical-align:middle}
+.seg button{background:transparent;border:0;color:var(--muted);font:600 11px 'Inter',sans-serif;letter-spacing:.04em;padding:6px 14px;cursor:pointer;transition:.15s}
+.seg button:hover{color:var(--ink)}
+.seg button.active.sw{background:#fc8019;color:#fff}
+.seg button.active.zo{background:#e23744;color:#fff}
+@media print{
+  body{background:#fff !important;color:#000 !important;background-image:none !important}
+  .seg,.refresh,#previewBanner,.menu,.live{display:none !important}
+  .card{border:1px solid #ccc !important;background:#fff !important}
+  .card .v,.card .k,.card .d,.sec-h h2,.brand h1,.loc,#search{color:#000 !important}
+  #search{border-color:#ccc !important}
+}
 </style>
 </head>
 <body>
@@ -89,12 +101,17 @@ section{margin-top:30px}
   <header>
     <div class="brand">
       <div class="mark"><span>PFC</span></div>
-      <div><h1 class="serif">Swiggy Performance</h1><div class="sub">Plateful Consulting</div></div>
+      <div><h1 class="serif" id="platTitle">Swiggy Performance</h1><div class="sub">Plateful Consulting</div></div>
+    </div>
+    <div class="seg" id="platToggle">
+      <button data-p="swiggy" onclick="switchPlatform('swiggy')">Swiggy</button>
+      <button data-p="zomato" onclick="switchPlatform('zomato')">Zomato</button>
     </div>
     <div class="asof">
       Data as of <b id="asof">—</b><br>
       <span class="live" id="liveTag"><span class="dot"></span><span id="liveTxt">preview</span></span><br><span style="font-size:10px;color:var(--faint)">build v3</span><br>
       <button class="refresh" onclick="boot(true)">↻ Refresh</button>
+      <button class="refresh" onclick="window.print()">⬇ PDF</button>
     </div>
   </header>
 
@@ -160,6 +177,19 @@ const G = {
 };
 
 let STORE={}, OUTLETS=[], currentRid=null, activeIdx=-1, IS_LIVE=false;
+
+/* platform (Swiggy / Zomato) — driven by ?src= in the URL */
+const PARAMS=new URLSearchParams(location.search);
+let PLATFORM = PARAMS.get('src')==='zomato' ? 'zomato' : 'swiggy';
+function switchPlatform(p){ if(p===PLATFORM) return; const u=new URL(location.href); u.searchParams.set('src',p); u.searchParams.delete('rid'); location.href=u.toString(); }
+function reflectPlatform(){
+  const name = PLATFORM==='zomato' ? 'Zomato' : 'Swiggy';
+  document.getElementById('platTitle').textContent = name+' Performance';
+  document.title = 'PFC · '+name+' Performance · v3';
+  document.querySelectorAll('#platToggle button').forEach(b=>{
+    b.className = (b.dataset.p===PLATFORM) ? ('active '+(PLATFORM==='swiggy'?'sw':'zo')) : '';
+  });
+}
 
 function key(m,p){return m+"||"+p;}
 function index(rows){
@@ -287,14 +317,14 @@ async function fetchLive(){
   const root=SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/';
   // preferred: per-outlet latest view, paginated past the 1000-row cap
   try{
-    const rows=await fetchAll(root+'swiggy_latest?select=*&order=rid,metric,period',h);
+    const rows=await fetchAll(root+PLATFORM+'_latest?select=*&order=rid,metric,period',h);
     if(rows.length){
       const day=rows.reduce((m,x)=>x.captured_on>m?x.captured_on:m, rows[0].captured_on);
       return {day, rows};
     }
   }catch(e){}
   // fallback: latest-date filter on base table, paginated
-  const base=root+'swiggy_metrics';
+  const base=root+PLATFORM+'_metrics';
   let r1=await fetch(base+'?select=captured_on&order=captured_on.desc&limit=1',{headers:h});
   if(!r1.ok) throw new Error('HTTP '+r1.status);
   const j=await r1.json(); if(!j.length) return null;
@@ -303,6 +333,7 @@ async function fetchLive(){
   return {day, rows};
 }
 async function boot(force){
+  reflectPlatform();
   let rows=SAMPLE, day=SAMPLE[0]?SAMPLE[0].captured_on:'—'; IS_LIVE=false;
   try{ const live=await fetchLive(); if(live&&live.rows.length){rows=live.rows; day=live.day; IS_LIVE=true;} }
   catch(e){ console.warn('live fetch failed, using sample:',e.message); }

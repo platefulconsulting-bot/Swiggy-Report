@@ -49,6 +49,24 @@ tfoot .lbl{font-family:'Inter';font-size:10.5px;letter-spacing:.16em;text-transf
 .hidden{display:none}
 .foot{margin-top:26px;font-size:11px;color:var(--faint);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
 @media(max-width:560px){#q{min-width:0;width:100%}}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--panel)}
+.seg button{background:transparent;border:0;color:var(--muted);font:600 12px 'Inter',sans-serif;letter-spacing:.04em;padding:8px 17px;cursor:pointer;transition:.15s}
+.seg button:hover{color:var(--ink)}
+.seg button.active.sw{background:#fc8019;color:#fff}
+.seg button.active.zo{background:#e23744;color:#fff}
+.spacer{flex:1}
+.exp{display:flex;gap:8px}
+.exp button{background:transparent;border:1px solid var(--line);color:var(--muted);font:600 11px 'Inter',sans-serif;letter-spacing:.08em;text-transform:uppercase;padding:8px 13px;border-radius:8px;cursor:pointer;transition:.15s}
+.exp button:hover{border-color:var(--gold-dim);color:var(--gold)}
+@media print{
+  body{background:#fff !important;color:#000 !important;background-image:none !important}
+  .controls,.seg,#previewBanner,.foot{display:none !important}
+  .tblwrap{border:1px solid #ccc}
+  th{color:#000 !important;background:#eee !important}
+  td,th{border-color:#ccc !important}
+  .nm,tfoot td,.meta{color:#000 !important}
+  .asof .live,.refresh{display:none !important}
+}
 </style>
 </head>
 <body>
@@ -56,7 +74,11 @@ tfoot .lbl{font-family:'Inter';font-size:10.5px;letter-spacing:.16em;text-transf
   <header>
     <div class="brand">
       <div class="mark"><span>PFC</span></div>
-      <div><h1 class="serif">Swiggy Fleet Overview</h1><div class="sub">Plateful Consulting</div></div>
+      <div><h1 class="serif" id="fleetTitle">Swiggy Fleet Overview</h1><div class="sub">Plateful Consulting</div></div>
+    </div>
+    <div class="seg" id="platToggle">
+      <button data-p="swiggy" onclick="switchPlatform('swiggy')">Swiggy</button>
+      <button data-p="zomato" onclick="switchPlatform('zomato')">Zomato</button>
     </div>
     <div class="asof">Data as of <b id="asof">—</b><br><span class="live" id="liveTag"><span class="dot"></span><span id="liveTxt">preview</span></span></div>
   </header>
@@ -66,6 +88,11 @@ tfoot .lbl{font-family:'Inter';font-size:10.5px;letter-spacing:.16em;text-transf
   <div class="controls">
     <input id="q" type="text" placeholder="Search outlet name or RID…" autocomplete="off">
     <span class="count" id="count"></span>
+    <span class="spacer"></span>
+    <div class="exp">
+      <button onclick="downloadXLS()">⬇ XLS</button>
+      <button onclick="window.print()">⬇ PDF</button>
+    </div>
   </div>
 
   <div class="tblwrap">
@@ -98,15 +125,46 @@ const SAMPLE=[{"rid": "10301", "name": "Punjabi Rasoi", "loc": "Rohini", "acct":
 
 let DATA=[], sortK="mtd", sortDir=-1;
 
+/* platform (Swiggy / Zomato) — driven by ?src= in the URL */
+const params=new URLSearchParams(location.search);
+let PLATFORM = params.get('src')==='zomato' ? 'zomato' : 'swiggy';
+function switchPlatform(p){ if(p===PLATFORM) return; const u=new URL(location.href); u.searchParams.set('src',p); location.href=u.toString(); }
+function reflectPlatform(){
+  const name = PLATFORM==='zomato' ? 'Zomato' : 'Swiggy';
+  document.getElementById('fleetTitle').textContent = name+' Fleet Overview';
+  document.title = 'PFC · '+name+' Fleet Overview';
+  document.querySelectorAll('#platToggle button').forEach(b=>{
+    b.className = (b.dataset.p===PLATFORM) ? ('active '+(PLATFORM==='swiggy'?'sw':'zo')) : '';
+  });
+}
+
+/* download the (filtered, sorted) table as an .xls Excel opens natively */
+function downloadXLS(){
+  const q=(document.getElementById('q').value||'').toLowerCase();
+  const list=DATA.filter(o=>(o.name+' '+o.rid+' '+o.loc).toLowerCase().includes(q)).slice().sort((a,b)=>{
+    if(sortK==="name") return sortDir*a.name.localeCompare(b.name);
+    return sortDir*(((a[sortK]==null?-1e15:a[sortK]))-((b[sortK]==null?-1e15:b[sortK])));
+  });
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const day=document.getElementById('asof').textContent, name=PLATFORM==='zomato'?'Zomato':'Swiggy';
+  const body=list.map(o=>`<tr><td>${esc(o.name)}</td><td>${esc(o.loc)}</td><td>${esc(o.rid)}</td><td>${o.py==null?'':o.py}</td><td>${o.mtd==null?'':o.mtd}</td><td>${o.pm==null?'':o.pm}</td></tr>`).join('');
+  const sum=k=>list.map(o=>o[k]).filter(x=>x!=null).reduce((a,b)=>a+b,0);
+  const html=`<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body><table border="1"><tr><th colspan="6">${name} Fleet — as of ${esc(day)}</th></tr><tr><th>Restaurant</th><th>Locality</th><th>RID</th><th>Prev Day Sale</th><th>MTD Sale</th><th>Prev Month Sale</th></tr>${body}<tr><td colspan="3"><b>Fleet Total (${list.length})</b></td><td><b>${sum('py')}</b></td><td><b>${sum('mtd')}</b></td><td><b>${sum('pm')}</b></td></tr></table></body></html>`;
+  const blob=new Blob([html],{type:'application/vnd.ms-excel'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=`${PLATFORM}_fleet_${String(day).replace(/[^0-9A-Za-z_-]/g,'')||'export'}.xls`;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
 function inr(v){if(v==null)return null;v=Math.round(v);const neg=v<0;v=Math.abs(v).toString();let l3=v.slice(-3),rest=v.slice(0,-3);if(rest)l3=","+l3;rest=rest.replace(/\B(?=(\d{2})+(?!\d))/g,",");return(neg?"-":"")+rest+l3}
 function cell(v){return v==null?'<span class="dim">—</span>':'<span class="rup">₹</span>'+inr(v)}
 
 async function fetchLive(){
   const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
   const root=SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/';
-  let r=await fetch(root+"swiggy_latest?select=captured_on,rid,outlet_name,locality,account,metric,period,value&metric=eq.Net%20Sales&limit=20000",{headers:h});
+  let r=await fetch(root+PLATFORM+"_latest?select=captured_on,rid,outlet_name,locality,account,metric,period,value&metric=eq.Net%20Sales&limit=20000",{headers:h});
   if(!r.ok){ // fallback: base table latest date
-    const base=root+"swiggy_metrics";
+    const base=root+PLATFORM+"_metrics";
     const r1=await fetch(base+"?select=captured_on&order=captured_on.desc&limit=1",{headers:h});
     if(!r1.ok) throw 0; const j=await r1.json(); if(!j.length) return null;
     r=await fetch(base+"?captured_on=eq."+j[0].captured_on+"&metric=eq.Net%20Sales&select=captured_on,rid,outlet_name,locality,account,metric,period,value&limit=20000",{headers:h});
@@ -128,7 +186,7 @@ async function fetchLive(){
 // Falls back to the baked PREV_MONTH map only if the history fetch fails / is offline.
 async function fetchPrevMonth(day){
   const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
-  const base=SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/swiggy_metrics';
+  const base=SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/'+PLATFORM+'_metrics';
   const monthFirst=(day||'').slice(0,7)+'-01';                 // e.g. "2026-07-01"
   const q="metric=eq.Net%20Sales&period=eq.This%20Month";
   const r1=await fetch(base+"?select=captured_on&"+q+"&captured_on=lt."+monthFirst+"&order=captured_on.desc&limit=1",{headers:h});
@@ -151,7 +209,7 @@ function render(){
     return sortDir*(((a[sortK]==null?-1e15:a[sortK]))-((b[sortK]==null?-1e15:b[sortK])));
   });
   document.getElementById('rows').innerHTML=list.map(o=>
-    `<tr onclick="location.href='${DETAIL_PAGE}?rid=${o.rid}'">
+    `<tr onclick="location.href='${DETAIL_PAGE}?rid=${o.rid}&src=${PLATFORM}'">
       <td><div class="nm">${o.name}</div><div class="meta">RID ${o.rid}${o.loc?' · '+o.loc:''}</div></td>
       <td>${cell(o.py)}</td><td>${cell(o.mtd)}</td><td>${cell(o.pm)}</td>
     </tr>`).join('');
@@ -171,6 +229,7 @@ document.querySelectorAll('th').forEach(th=>th.addEventListener('click',()=>{
 document.getElementById('q').addEventListener('input',render);
 
 (async function boot(){
+  reflectPlatform();
   let live=null;
   try{ live=await fetchLive(); }catch(e){}
   const on=!!(live&&live.list.length);
