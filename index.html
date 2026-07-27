@@ -60,8 +60,6 @@ tfoot .lbl{font-family:'Inter';font-size:10.5px;letter-spacing:.16em;text-transf
 .exp{display:flex;gap:8px}
 .exp button{background:transparent;border:1px solid var(--line);color:var(--muted);font:600 11px 'Inter',sans-serif;letter-spacing:.08em;text-transform:uppercase;padding:8px 13px;border-radius:8px;cursor:pointer;transition:.15s}
 .exp button:hover{border-color:var(--gold-dim);color:var(--gold)}
-.exp .daily{background:#C5A14E;border-color:#C5A14E;color:#14110b}
-.exp .daily:hover{filter:brightness(1.08);color:#14110b}
 @media print{
   @page{size:A4;margin:14mm 10mm 16mm}
   html,body{background:#fff !important;color:#14110b !important;background-image:none !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -115,7 +113,6 @@ tfoot .lbl{font-family:'Inter';font-size:10.5px;letter-spacing:.16em;text-transf
     <span class="count" id="count"></span>
     <span class="spacer"></span>
     <div class="exp">
-      <button class="daily" onclick="downloadDaily()">⬇ Daily Report</button>
       <button onclick="downloadXLS()">⬇ XLS</button>
       <button onclick="downloadPDF()">⬇ PDF</button>
     </div>
@@ -231,46 +228,6 @@ async function downloadPDF(){
     didDrawPage:()=>pdfChrome(doc,logo,nm,'',day)
   });
   doc.save(PLATFORM+'_fleet_'+String(day).replace(/[^0-9A-Za-z_-]/g,'')+'.pdf');
-}
-
-/* ---- Daily client report: previous-day Sales + Orders only (clean, small) ---- */
-async function downloadDaily(){
-  if(!(window.jspdf&&window.jspdf.jsPDF)){ alert('PDF engine not loaded — check your connection.'); return; }
-  const platName=(PLATFORM==='zomato'?'Zomato':'Swiggy');
-  const day=document.getElementById('asof').textContent;
-  // fetch previous-day Orders (Delivered Orders @ Yesterday) for this platform
-  const orders={};
-  try{
-    const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
-    const url=SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/'+PLATFORM+'_latest?select=rid,value,no_data'
-      +'&metric=eq.'+encodeURIComponent('Delivered Orders')+'&period=eq.Yesterday&limit=20000';
-    const r=await fetch(url,{headers:h});
-    if(r.ok){ for(const x of await r.json()){ if(x.rid && !x.no_data && x.value!=null) orders[x.rid]=x.value; } }
-  }catch(e){ /* orders stay blank */ }
-
-  const nz=v=>v!=null && Number(v)!==0;
-  const rows=DATA.map(o=>({name:o.name,loc:o.loc,py:o.py,ord:(orders[o.rid]!=null?orders[o.rid]:null)}))
-    .filter(o=> nz(o.py) || nz(o.ord))
-    .sort((a,b)=>(b.py||0)-(a.py||0));
-
-  const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'mm',format:'a4'});
-  const logo=await pfcLogoDataURL();
-  const money=v=>v==null?'—':'Rs '+inr(v);
-  const num=v=>v==null?'—':inr(v);
-  const body=rows.map(o=>[ o.loc?(o.name+'\n'+o.loc):o.name, money(o.py), num(o.ord) ]);
-  const tSales=rows.reduce((a,o)=>a+(o.py||0),0), tOrd=rows.reduce((a,o)=>a+(o.ord||0),0);
-  doc.autoTable({
-    head:[['Restaurant','Previous Day Sales','Orders']],
-    body,
-    foot:[['Total ('+rows.length+' outlets)', money(tSales), num(tOrd)]],
-    margin:{top:30,bottom:16,left:12,right:12},
-    styles:{font:'helvetica',fontSize:10,cellPadding:2.8,textColor:[30,26,18],lineColor:[228,223,210],lineWidth:0.1,valign:'middle'},
-    headStyles:{fillColor:[241,236,223],textColor:[20,17,11],fontStyle:'bold',lineColor:[185,147,47],lineWidth:0.2},
-    footStyles:{fillColor:[250,246,236],textColor:[20,17,11],fontStyle:'bold'},
-    columnStyles:{0:{halign:'left',cellWidth:104},1:{halign:'right'},2:{halign:'right',cellWidth:28}},
-    didDrawPage:()=>pdfChrome(doc,logo, platName+' — Daily Sales Report', '', day)
-  });
-  doc.save(PLATFORM+'_daily_'+String(day).replace(/[^0-9A-Za-z_-]/g,'')+'.pdf');
 }
 
 function inr(v){if(v==null)return null;v=Math.round(v);const neg=v<0;v=Math.abs(v).toString();let l3=v.slice(-3),rest=v.slice(0,-3);if(rest)l3=","+l3;rest=rest.replace(/\B(?=(\d{2})+(?!\d))/g,",");return(neg?"-":"")+rest+l3}

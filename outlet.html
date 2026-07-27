@@ -35,6 +35,8 @@ header{display:flex;align-items:center;justify-content:space-between;gap:18px;pa
 .live.on .dot{background:var(--pos);box-shadow:0 0 0 3px rgba(63,174,122,.15)}
 button.refresh{margin-top:8px;background:transparent;border:1px solid var(--line);color:var(--muted);font:500 11px Inter;letter-spacing:.1em;text-transform:uppercase;padding:6px 12px;border-radius:7px;cursor:pointer;transition:.15s}
 button.refresh:hover{border-color:var(--gold-dim);color:var(--gold)}
+button.refresh.daily{background:#C5A14E;border-color:#C5A14E;color:#14110b}
+button.refresh.daily:hover{filter:brightness(1.08);color:#14110b}
 
 .controls{display:flex;align-items:center;gap:14px;margin:24px 0 8px;flex-wrap:wrap}
 .controls label{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
@@ -137,6 +139,7 @@ section{margin-top:30px}
     <div class="asof">
       Data as of <b id="asof">—</b><br>
       <span class="live" id="liveTag"><span class="dot"></span><span id="liveTxt">preview</span></span><br>
+      <button class="refresh daily" onclick="downloadDaily()">⬇ Daily Report</button>
       <button class="refresh" onclick="boot(true)">↻ Refresh</button>
       <button class="refresh" onclick="downloadPDF()">⬇ PDF</button>
     </div>
@@ -412,6 +415,38 @@ async function downloadPDF(){
     first=false;
   }
   doc.save(PLATFORM+'_'+(o.name||'outlet').replace(/[^0-9A-Za-z_-]/g,'_')+'_'+String(day).replace(/[^0-9A-Za-z_-]/g,'')+'.pdf');
+}
+
+/* ---- Daily client report for THIS outlet: previous-day Sales + Orders only ---- */
+async function downloadDaily(){
+  if(!(window.jspdf&&window.jspdf.jsPDF)){ alert('PDF engine not loaded — check your connection.'); return; }
+  const rid=currentRid, o=STORE[rid]; if(!o){ alert('Pick an outlet first.'); return; }
+  const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'mm',format:'a4'});
+  const logo=await pfcLogoDataURL();
+  const platName=(PLATFORM==='zomato'?'Zomato':'Swiggy');
+  const day=document.getElementById('asof').textContent;
+  const W=doc.internal.pageSize.getWidth();
+  const sr=get(rid,'Net Sales','Yesterday'), or=get(rid,'Delivered Orders','Yesterday');
+  const salesTxt=(sr&&sr.value!=null&&!sr.no_data)?'Rs '+inr(sr.value):'—';
+  const ordTxt=(or&&or.value!=null&&!or.no_data)?inr(or.value):'—';
+  pdfChrome(doc,logo, platName+' — Daily Sales Report', '', day);
+  let y=36;
+  doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(20,17,11);
+  doc.text(o.name||('RID '+rid), 12, y);
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(110,99,85);
+  doc.text((o.loc?o.loc+'   ·   ':'')+'RID '+rid, 12, y+6);
+  const boxY=y+14, boxH=30, gap=8, boxW=(W-24-gap)/2;
+  const stat=(x,label,val)=>{
+    doc.setFillColor(250,248,242); doc.setDrawColor(210,202,182); doc.setLineWidth(0.3);
+    doc.roundedRect(x,boxY,boxW,boxH,2.5,2.5,'FD');
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(120,110,90);
+    doc.text(label, x+7, boxY+10);
+    doc.setFont('helvetica','bold'); doc.setFontSize(22); doc.setTextColor(20,17,11);
+    doc.text(val, x+7, boxY+23);
+  };
+  stat(12,'PREVIOUS DAY SALES', salesTxt);
+  stat(12+boxW+gap,'PREVIOUS DAY ORDERS', ordTxt);
+  doc.save(PLATFORM+'_'+(o.name||'outlet').replace(/[^0-9A-Za-z_-]/g,'_')+'_daily_'+String(day).replace(/[^0-9A-Za-z_-]/g,'')+'.pdf');
 }
 
 async function boot(force){
