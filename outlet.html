@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PFC · Swiggy Performance · v3</title>
+<title>PFC · Swiggy Performance</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -87,11 +87,34 @@ section{margin-top:30px}
 .seg button.active.sw{background:#fc8019;color:#fff}
 .seg button.active.zo{background:#e23744;color:#fff}
 @media print{
-  body{background:#fff !important;color:#000 !important;background-image:none !important}
-  .seg,.refresh,#previewBanner,.menu,.live{display:none !important}
-  .card{border:1px solid #ccc !important;background:#fff !important}
-  .card .v,.card .k,.card .d,.sec-h h2,.brand h1,.loc,#search{color:#000 !important}
-  #search{border-color:#ccc !important}
+  @page{size:A4;margin:0}
+  html,body{background:#fff !important;color:#14110b !important;background-image:none !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .wrap{max-width:none;padding:15mm 12mm}
+  .seg,.refresh,#previewBanner,.menu,.asof .live,.combo .ico{display:none !important}
+  header{border-bottom:1.5px solid #b9932f;padding-bottom:12px;margin-bottom:14px}
+  .mark{border-color:#b9932f !important}
+  .brand h1{color:#14110b !important}
+  .brand .sub{color:#6b6355 !important}
+  .asof{color:#3a352b !important}
+  .asof b{color:#14110b !important}
+  .controls{margin:0 0 14px}
+  .controls label{color:#6b6355 !important}
+  #search{border:0 !important;background:transparent !important;color:#14110b !important;font:600 17px 'Playfair Display',serif !important;padding:0 !important}
+  .loc{color:#3a352b !important}
+  .sec-h h2{color:#8a6d1f !important}
+  .sec-h .rule{background:#e6ddc7 !important}
+  .sec-h .cmp{color:#8a8270 !important}
+  .lag{color:#8a6d1f !important;background:#f5efdf !important;border-color:#e6ddc7 !important}
+  section{break-inside:avoid;margin-top:18px}
+  .card{border:1px solid #d8d2c4 !important;background:#fff !important;break-inside:avoid}
+  .card .k{color:#6b6355 !important}
+  .card .v{color:#14110b !important}
+  .delta.pos{color:#1a7f4b !important}.delta.neg{color:#b3372f !important}.delta.neu{color:#6b6355 !important}
+  .cmp{color:#a59c88 !important}
+  .muted-card .v{color:#a59c88 !important}
+  .foot{border-top:1px solid #e4dfd2 !important;color:#6b6355 !important;margin-top:20px}
+  .foot span:last-child{display:none !important}
+  #accLine{color:#6b6355 !important}
 }
 </style>
 </head>
@@ -108,7 +131,7 @@ section{margin-top:30px}
     </div>
     <div class="asof">
       Data as of <b id="asof">—</b><br>
-      <span class="live" id="liveTag"><span class="dot"></span><span id="liveTxt">preview</span></span><br><span style="font-size:10px;color:var(--faint)">build v3</span><br>
+      <span class="live" id="liveTag"><span class="dot"></span><span id="liveTxt">preview</span></span><br>
       <button class="refresh" onclick="boot(true)">↻ Refresh</button>
       <button class="refresh" onclick="window.print()">⬇ PDF</button>
     </div>
@@ -184,7 +207,7 @@ function switchPlatform(p){ if(p===PLATFORM) return; const u=new URL(location.hr
 function reflectPlatform(){
   const name = PLATFORM==='zomato' ? 'Zomato' : 'Swiggy';
   document.getElementById('platTitle').textContent = name+' Performance';
-  document.title = 'PFC · '+name+' Performance · v3';
+  document.title = 'PFC · '+name+' Performance';
   document.querySelectorAll('#platToggle button').forEach(b=>{
     b.className = (b.dataset.p===PLATFORM) ? ('active '+(PLATFORM==='swiggy'?'sw':'zo')) : '';
   });

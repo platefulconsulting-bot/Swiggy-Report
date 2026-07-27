@@ -58,13 +58,29 @@ tfoot .lbl{font-family:'Inter';font-size:10.5px;letter-spacing:.16em;text-transf
 .exp button{background:transparent;border:1px solid var(--line);color:var(--muted);font:600 11px 'Inter',sans-serif;letter-spacing:.08em;text-transform:uppercase;padding:8px 13px;border-radius:8px;cursor:pointer;transition:.15s}
 .exp button:hover{border-color:var(--gold-dim);color:var(--gold)}
 @media print{
-  body{background:#fff !important;color:#000 !important;background-image:none !important}
-  .controls,.seg,#previewBanner,.foot{display:none !important}
-  .tblwrap{border:1px solid #ccc}
-  th{color:#000 !important;background:#eee !important}
-  td,th{border-color:#ccc !important}
-  .nm,tfoot td,.meta{color:#000 !important}
-  .asof .live,.refresh{display:none !important}
+  @page{size:A4;margin:0}
+  html,body{background:#fff !important;color:#14110b !important;background-image:none !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .wrap{max-width:none;margin:0;padding:15mm 12mm}
+  .controls,.seg,#previewBanner,.foot,.asof .live,.refresh{display:none !important}
+  header{border-bottom:1.5px solid #b9932f;padding-bottom:12px;margin-bottom:16px}
+  .mark{border-color:#b9932f !important}
+  .brand h1{color:#14110b !important}
+  .brand .sub{color:#6b6355 !important}
+  .asof{color:#3a352b !important}
+  .asof b{color:#14110b !important}
+  .tblwrap{border:1px solid #d8d2c4;border-radius:0;overflow:visible}
+  table{min-width:0}
+  thead{display:table-header-group}
+  th{color:#14110b !important;background:#f1ecdf !important;border-bottom:1.5px solid #b9932f !important}
+  td,th{border-color:#e4dfd2 !important}
+  th .dir{display:none !important}
+  .nm{color:#14110b !important}
+  .meta{color:#6b6355 !important}
+  .rup{color:#8a8270 !important}
+  .dim{color:#a59c88 !important}
+  tbody tr{break-inside:avoid}
+  tfoot td{background:#faf6ec !important;color:#14110b !important;border-top:1.5px solid #b9932f !important}
+  tfoot .lbl{color:#8a6d1f !important}
 }
 </style>
 </head>
