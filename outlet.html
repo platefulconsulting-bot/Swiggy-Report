@@ -37,6 +37,8 @@ button.refresh{margin-top:8px;background:transparent;border:1px solid var(--line
 button.refresh:hover{border-color:var(--gold-dim);color:var(--gold)}
 button.refresh.daily{background:#C5A14E;border-color:#C5A14E;color:#14110b}
 button.refresh.daily:hover{filter:brightness(1.08);color:#14110b}
+.backbtn{display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--line);color:var(--muted);font:600 12px 'Inter',sans-serif;padding:9px 14px;border-radius:8px;cursor:pointer;text-decoration:none;transition:.15s}
+.backbtn:hover{border-color:var(--gold-dim);color:var(--gold)}
 
 .controls{display:flex;align-items:center;gap:14px;margin:24px 0 8px;flex-wrap:wrap}
 .controls label{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
@@ -95,7 +97,7 @@ section{margin-top:30px}
   @page{size:A4;margin:14mm 10mm 16mm}
   html,body{background:#fff !important;color:#14110b !important;background-image:none !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .wrap{max-width:none;padding:0}
-  header,.seg,.refresh,#previewBanner,.menu,.asof .live,.combo .ico,.foot{display:none !important}
+  header,.seg,.refresh,#previewBanner,.menu,.asof .live,.combo .ico,.foot,.backbtn{display:none !important}
   /* branded header block (in-flow, no overlap) */
   .print-header{display:flex !important;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:6px;border-bottom:1.5px solid #b9932f}
   .ph-logo{width:11mm;height:11mm;border-radius:2mm;object-fit:cover;border:1px solid #b9932f}
@@ -150,6 +152,7 @@ section{margin-top:30px}
   </div>
 
   <div class="controls">
+    <a class="backbtn" href="#" onclick="goBack();return false;">&#8592; Dashboard</a>
     <label>Outlet</label>
     <div class="combo">
       <input id="search" type="text" autocomplete="off" spellcheck="false" placeholder="Search outlet name or RID…">
@@ -212,6 +215,7 @@ let STORE={}, OUTLETS=[], currentRid=null, activeIdx=-1, IS_LIVE=false;
 const PARAMS=new URLSearchParams(location.search);
 let PLATFORM = PARAMS.get('src')==='zomato' ? 'zomato' : 'swiggy';
 function switchPlatform(p){ if(p===PLATFORM) return; const u=new URL(location.href); u.searchParams.set('src',p); u.searchParams.delete('rid'); location.href=u.toString(); }
+function goBack(){ location.href='index.html?src='+PLATFORM; }
 function reflectPlatform(){
   const name = PLATFORM==='zomato' ? 'Zomato' : 'Swiggy';
   document.getElementById('platTitle').textContent = name+' Performance';
