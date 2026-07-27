@@ -11,7 +11,8 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
 body{background-image:radial-gradient(900px 500px at 85% -10%,rgba(197,161,78,.07),transparent 60%);min-height:100vh}
-.wrap{max-width:1180px;margin:0 auto;padding:28px 22px 80px}
+.wrap{max-width:1180px;margin:0 auto;padding:44px 22px 80px}
+.print-header{display:none}
 .serif{font-family:'Playfair Display',serif}
 header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding-bottom:22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:14px}
@@ -58,16 +59,16 @@ tfoot .lbl{font-family:'Inter';font-size:10.5px;letter-spacing:.16em;text-transf
 .exp button{background:transparent;border:1px solid var(--line);color:var(--muted);font:600 11px 'Inter',sans-serif;letter-spacing:.08em;text-transform:uppercase;padding:8px 13px;border-radius:8px;cursor:pointer;transition:.15s}
 .exp button:hover{border-color:var(--gold-dim);color:var(--gold)}
 @media print{
-  @page{size:A4;margin:0}
+  @page{size:A4;margin:24mm 10mm 16mm}
   html,body{background:#fff !important;color:#14110b !important;background-image:none !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .wrap{max-width:none;margin:0;padding:15mm 12mm}
-  .controls,.seg,#previewBanner,.foot,.asof .live,.refresh{display:none !important}
-  header{border-bottom:1.5px solid #b9932f;padding-bottom:12px;margin-bottom:16px}
-  .mark{border-color:#b9932f !important}
-  .brand h1{color:#14110b !important}
-  .brand .sub{color:#6b6355 !important}
-  .asof{color:#3a352b !important}
-  .asof b{color:#14110b !important}
+  .wrap{max-width:none;margin:0;padding:0}
+  header,.controls,.seg,#previewBanner,.foot,.asof .live,.refresh{display:none !important}
+  /* repeating branded header on every printed page */
+  .print-header{display:flex !important;align-items:center;gap:10px;position:fixed;top:7mm;left:10mm;right:10mm;padding-bottom:5px;border-bottom:1.5px solid #b9932f}
+  .ph-logo{width:11mm;height:11mm;border-radius:2mm;object-fit:cover;border:1px solid #b9932f}
+  .ph-brand{font:600 12.5px 'Inter',sans-serif;color:#14110b;line-height:1.2}
+  .ph-title{font:400 10px 'Inter',sans-serif;color:#6b6355;letter-spacing:.03em;margin-top:1px}
+  .ph-asof{margin-left:auto;font:400 10px 'Inter',sans-serif;color:#3a352b;white-space:nowrap}
   .tblwrap{border:1px solid #d8d2c4;border-radius:0;overflow:visible}
   table{min-width:0}
   thead{display:table-header-group}
@@ -86,6 +87,11 @@ tfoot .lbl{font-family:'Inter';font-size:10.5px;letter-spacing:.16em;text-transf
 </head>
 <body>
 <div class="wrap">
+  <div class="print-header">
+    <img class="ph-logo" src="pfc-logo.png" alt="">
+    <div><div class="ph-brand">Plateful Consulting</div><div class="ph-title" id="printTitle"></div></div>
+    <div class="ph-asof" id="printAsof"></div>
+  </div>
   <header>
     <div class="brand">
       <img class="mark" src="pfc-logo.png" alt="PFC" />
@@ -148,6 +154,7 @@ function reflectPlatform(){
   const name = PLATFORM==='zomato' ? 'Zomato' : 'Swiggy';
   document.getElementById('fleetTitle').textContent = name+' Fleet Overview';
   document.title = 'PFC · '+name+' Fleet Overview';
+  const pt=document.getElementById('printTitle'); if(pt) pt.textContent = name+' Fleet Overview';
   document.querySelectorAll('#platToggle button').forEach(b=>{
     b.className = (b.dataset.p===PLATFORM) ? ('active '+(PLATFORM==='swiggy'?'sw':'zo')) : '';
   });
@@ -257,6 +264,7 @@ document.getElementById('q').addEventListener('input',render);
   const nz = v => v!=null && Number(v)!==0;
   DATA = DATA.filter(o => nz(o.py) || nz(o.mtd) || nz(o.pm));
   document.getElementById('asof').textContent=on?live.day:'sample';
+  { const pa=document.getElementById('printAsof'); if(pa) pa.textContent='As of '+(on?live.day:'sample'); }
   document.getElementById('liveTag').classList.toggle('on',on);
   document.getElementById('liveTxt').textContent=on?'live':'preview';
   document.getElementById('previewBanner').classList.toggle('hidden',on);
