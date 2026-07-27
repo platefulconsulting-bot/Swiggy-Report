@@ -6,6 +6,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{--bg:#0a0a0b;--panel:#121214;--panel2:#17171a;--line:#26262b;--ink:#f4f1ea;--muted:#8d8a83;--faint:#5c5a55;--gold:#C5A14E;--gold-dim:#9b7f3e;--gold-soft:#3a3220;--pos:#3fae7a;--neg:#d8564f}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -59,12 +61,12 @@ tfoot .lbl{font-family:'Inter';font-size:10.5px;letter-spacing:.16em;text-transf
 .exp button{background:transparent;border:1px solid var(--line);color:var(--muted);font:600 11px 'Inter',sans-serif;letter-spacing:.08em;text-transform:uppercase;padding:8px 13px;border-radius:8px;cursor:pointer;transition:.15s}
 .exp button:hover{border-color:var(--gold-dim);color:var(--gold)}
 @media print{
-  @page{size:A4;margin:24mm 10mm 16mm}
+  @page{size:A4;margin:14mm 10mm 16mm}
   html,body{background:#fff !important;color:#14110b !important;background-image:none !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .wrap{max-width:none;margin:0;padding:0}
   header,.controls,.seg,#previewBanner,.foot,.asof .live,.refresh{display:none !important}
-  /* repeating branded header on every printed page */
-  .print-header{display:flex !important;align-items:center;gap:10px;position:fixed;top:7mm;left:10mm;right:10mm;padding-bottom:5px;border-bottom:1.5px solid #b9932f}
+  /* branded header block (in-flow, no overlap) */
+  .print-header{display:flex !important;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:6px;border-bottom:1.5px solid #b9932f}
   .ph-logo{width:11mm;height:11mm;border-radius:2mm;object-fit:cover;border:1px solid #b9932f}
   .ph-brand{font:600 12.5px 'Inter',sans-serif;color:#14110b;line-height:1.2}
   .ph-title{font:400 10px 'Inter',sans-serif;color:#6b6355;letter-spacing:.03em;margin-top:1px}
@@ -112,7 +114,7 @@ tfoot .lbl{font-family:'Inter';font-size:10.5px;letter-spacing:.16em;text-transf
     <span class="spacer"></span>
     <div class="exp">
       <button onclick="downloadXLS()">⬇ XLS</button>
-      <button onclick="window.print()">⬇ PDF</button>
+      <button onclick="downloadPDF()">⬇ PDF</button>
     </div>
   </div>
 
@@ -176,6 +178,56 @@ function downloadXLS(){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
   a.download=`${PLATFORM}_fleet_${String(day).replace(/[^0-9A-Za-z_-]/g,'')||'export'}.xls`;
   a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ---- PDF (branded header + footer on every page, no browser chrome) ---- */
+async function pfcLogoDataURL(){
+  try{ const r=await fetch('pfc-logo.png'); if(!r.ok) return null; const b=await r.blob();
+    return await new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result);f.onerror=rej;f.readAsDataURL(b);}); }
+  catch(e){ return null; }
+}
+function pdfChrome(doc, logo, title, sub, asof){
+  const W=doc.internal.pageSize.getWidth(), H=doc.internal.pageSize.getHeight();
+  const p=doc.internal.getCurrentPageInfo().pageNumber;
+  if(logo){ try{ doc.addImage(logo,'PNG',12,9,13,13); }catch(e){} }
+  doc.setTextColor(20,17,11); doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.text('Plateful Consulting', 28, 15);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(110,99,85);
+  if(title) doc.text(title+(sub?'   '+sub:''), 28, 20.5);
+  doc.setFontSize(9); doc.setTextColor(90,85,70);
+  doc.text('As of '+asof, W-12, 15, {align:'right'});
+  doc.setDrawColor(185,147,47); doc.setLineWidth(0.5); doc.line(12,24,W-12,24);
+  doc.setDrawColor(228,223,210); doc.setLineWidth(0.3); doc.line(12,H-12,W-12,H-12);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(140,132,115);
+  doc.text('© Plateful Consulting', 12, H-8);
+  doc.text('Page '+p, W-12, H-8, {align:'right'});
+}
+async function downloadPDF(){
+  if(!(window.jspdf&&window.jspdf.jsPDF)){ window.print(); return; }
+  const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'mm',format:'a4'});
+  const logo=await pfcLogoDataURL();
+  const nm=(PLATFORM==='zomato'?'Zomato':'Swiggy')+' Fleet Overview';
+  const day=document.getElementById('asof').textContent;
+  const q=(document.getElementById('q').value||'').toLowerCase();
+  const list=DATA.filter(o=>(o.name+' '+o.rid+' '+o.loc).toLowerCase().includes(q)).slice().sort((a,b)=>{
+    if(sortK==="name") return sortDir*a.name.localeCompare(b.name);
+    return sortDir*(((a[sortK]==null?-1e15:a[sortK]))-((b[sortK]==null?-1e15:b[sortK])));
+  });
+  const money=v=>v==null?'—':'Rs '+inr(v);
+  const body=list.map(o=>[ o.loc?(o.name+'\n'+o.loc):o.name, money(o.py), money(o.mtd), money(o.pm) ]);
+  const sum=k=>list.map(o=>o[k]).filter(x=>x!=null).reduce((a,b)=>a+b,0);
+  doc.autoTable({
+    head:[['Restaurant','Prev Day Sale','MTD Sale','Prev Month Sale']],
+    body,
+    foot:[['Fleet Total ('+list.length+')', money(sum('py')), money(sum('mtd')), money(sum('pm'))]],
+    margin:{top:30,bottom:16,left:12,right:12},
+    styles:{font:'helvetica',fontSize:9,cellPadding:2.3,textColor:[30,26,18],lineColor:[228,223,210],lineWidth:0.1,valign:'middle'},
+    headStyles:{fillColor:[241,236,223],textColor:[20,17,11],fontStyle:'bold',lineColor:[185,147,47],lineWidth:0.2},
+    footStyles:{fillColor:[250,246,236],textColor:[20,17,11],fontStyle:'bold'},
+    columnStyles:{0:{halign:'left',cellWidth:80},1:{halign:'right'},2:{halign:'right'},3:{halign:'right'}},
+    didDrawPage:()=>pdfChrome(doc,logo,nm,'',day)
+  });
+  doc.save(PLATFORM+'_fleet_'+String(day).replace(/[^0-9A-Za-z_-]/g,'')+'.pdf');
 }
 
 function inr(v){if(v==null)return null;v=Math.round(v);const neg=v<0;v=Math.abs(v).toString();let l3=v.slice(-3),rest=v.slice(0,-3);if(rest)l3=","+l3;rest=rest.replace(/\B(?=(\d{2})+(?!\d))/g,",");return(neg?"-":"")+rest+l3}

@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{
   --bg:#0a0a0b; --panel:#121214; --panel2:#17171a; --line:#26262b;
@@ -88,12 +90,12 @@ section{margin-top:30px}
 .seg button.active.sw{background:#fc8019;color:#fff}
 .seg button.active.zo{background:#e23744;color:#fff}
 @media print{
-  @page{size:A4;margin:24mm 10mm 16mm}
+  @page{size:A4;margin:14mm 10mm 16mm}
   html,body{background:#fff !important;color:#14110b !important;background-image:none !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .wrap{max-width:none;padding:0}
   header,.seg,.refresh,#previewBanner,.menu,.asof .live,.combo .ico,.foot{display:none !important}
-  /* repeating branded header on every printed page */
-  .print-header{display:flex !important;align-items:center;gap:10px;position:fixed;top:7mm;left:10mm;right:10mm;padding-bottom:5px;border-bottom:1.5px solid #b9932f}
+  /* branded header block (in-flow, no overlap) */
+  .print-header{display:flex !important;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:6px;border-bottom:1.5px solid #b9932f}
   .ph-logo{width:11mm;height:11mm;border-radius:2mm;object-fit:cover;border:1px solid #b9932f}
   .ph-brand{font:600 12.5px 'Inter',sans-serif;color:#14110b;line-height:1.2}
   .ph-title{font:400 10px 'Inter',sans-serif;color:#6b6355;letter-spacing:.03em;margin-top:1px}
@@ -136,7 +138,7 @@ section{margin-top:30px}
       Data as of <b id="asof">—</b><br>
       <span class="live" id="liveTag"><span class="dot"></span><span id="liveTxt">preview</span></span><br>
       <button class="refresh" onclick="boot(true)">↻ Refresh</button>
-      <button class="refresh" onclick="window.print()">⬇ PDF</button>
+      <button class="refresh" onclick="downloadPDF()">⬇ PDF</button>
     </div>
   </header>
 
@@ -359,6 +361,59 @@ async function fetchLive(){
   const rows=await fetchAll(base+'?captured_on=eq.'+day+'&select=*&order=rid,metric,period',h);
   return {day, rows};
 }
+/* ---- PDF (branded header + footer on every page, no browser chrome) ---- */
+async function pfcLogoDataURL(){
+  try{ const r=await fetch('pfc-logo.png'); if(!r.ok) return null; const b=await r.blob();
+    return await new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result);f.onerror=rej;f.readAsDataURL(b);}); }
+  catch(e){ return null; }
+}
+function pdfChrome(doc, logo, title, sub, asof){
+  const W=doc.internal.pageSize.getWidth(), H=doc.internal.pageSize.getHeight();
+  const p=doc.internal.getCurrentPageInfo().pageNumber;
+  if(logo){ try{ doc.addImage(logo,'PNG',12,9,13,13); }catch(e){} }
+  doc.setTextColor(20,17,11); doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.text('Plateful Consulting', 28, 15);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(110,99,85);
+  if(title) doc.text(title+(sub?'   '+sub:''), 28, 20.5);
+  doc.setFontSize(9); doc.setTextColor(90,85,70);
+  doc.text('As of '+asof, W-12, 15, {align:'right'});
+  doc.setDrawColor(185,147,47); doc.setLineWidth(0.5); doc.line(12,24,W-12,24);
+  doc.setDrawColor(228,223,210); doc.setLineWidth(0.3); doc.line(12,H-12,W-12,H-12);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(140,132,115);
+  doc.text('© Plateful Consulting', 12, H-8);
+  doc.text('Page '+p, W-12, H-8, {align:'right'});
+}
+async function downloadPDF(){
+  if(!(window.jspdf&&window.jspdf.jsPDF)){ window.print(); return; }
+  const rid=currentRid, o=STORE[rid]; if(!o){ window.print(); return; }
+  const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'mm',format:'a4'});
+  const logo=await pfcLogoDataURL();
+  const nm=(PLATFORM==='zomato'?'Zomato':'Swiggy')+' Performance';
+  const sub=o.name+(o.loc?' · '+o.loc:'')+' · RID '+rid;
+  const day=document.getElementById('asof').textContent;
+  const val=r=>{ if(!r||r.value==null||r.no_data) return '—'; if(r.is_currency) return 'Rs '+inr(r.value); if(r.is_pct) return trimNum(r.value)+'%'; if(/Prep Time/i.test(r.metric)) return trimNum(r.value)+' min'; if(/ROAS/i.test(r.metric)) return trimNum(r.value)+'x'; return inr(r.value); };
+  const chg=r=>{ if(!r||r.delta_pct==null||r.no_data) return ''; const a=r.direction==='up'?'+':(r.direction==='down'?'-':''); return a+trimNum(r.delta_pct)+'%'+(r.compare_label?' '+r.compare_label:''); };
+  const sections=[['Net Sales',[['Previous Day',get(rid,'Net Sales','Yesterday')],['This Week',get(rid,'Net Sales','This Week')],['Month to Date',get(rid,'Net Sales','This Month')]]]];
+  for(const s of [['Orders & Value',G.orders],['Ads - CPC',G.cpc],['Ads - CBA',G.cba],['Discounts',G.disc],['Operations',G.ops]]){
+    sections.push([s[0], s[1].map(x=>[x[1], get(rid,x[0],'This Month')])]);
+  }
+  let first=true;
+  for(const sec of sections){
+    doc.autoTable({
+      head:[[sec[0],'Value','Change']],
+      body: sec[1].map(row=>[row[0], val(row[1]), chg(row[1])]),
+      startY: first?30:(doc.lastAutoTable.finalY+6),
+      margin:{top:30,bottom:16,left:12,right:12},
+      styles:{font:'helvetica',fontSize:9,cellPadding:2.2,textColor:[30,26,18],lineColor:[228,223,210],lineWidth:0.1},
+      headStyles:{fillColor:[241,236,223],textColor:[138,109,31],fontStyle:'bold'},
+      columnStyles:{0:{halign:'left',cellWidth:92},1:{halign:'right',cellWidth:46},2:{halign:'right'}},
+      didDrawPage:()=>pdfChrome(doc,logo,nm,sub,day)
+    });
+    first=false;
+  }
+  doc.save(PLATFORM+'_'+(o.name||'outlet').replace(/[^0-9A-Za-z_-]/g,'_')+'_'+String(day).replace(/[^0-9A-Za-z_-]/g,'')+'.pdf');
+}
+
 async function boot(force){
   reflectPlatform();
   let rows=SAMPLE, day=SAMPLE[0]?SAMPLE[0].captured_on:'—'; IS_LIVE=false;
