@@ -24,10 +24,11 @@ HEADLESS  = os.environ.get("HEADLESS", "true").lower() != "false"
 SHOT_DEBUG = os.environ.get("SHOT_DEBUG", "") not in ("", "0", "false")
 
 # ---------------- scrape scope ----------------
-# Efficient default: headline Net Sales at all 3 ranges, every other metric at MTD.
+# Efficient default: Net Sales + Delivered Orders at all 3 ranges, every other metric at MTD.
 # Set ALL_AT_ALL=True for every metric at all 3 ranges (~3x slower per account).
 ALL_AT_ALL     = False
 HEADLINE       = "Net Sales"
+DAILY_METRICS  = [HEADLINE, "Delivered Orders"]   # captured at ALL 3 ranges incl. Yesterday (previous-day orders)
 HEADLINE_DATES = ["Yesterday", "This Week", "This Month"]   # Previous Day, Weekly, MTD
 PRIMARY_DATE   = "This Month"                                # MTD for everything else
 METRICS = [
@@ -42,7 +43,7 @@ METRICS = [
 if ALL_AT_ALL:
     WORK = [(d, m) for d in HEADLINE_DATES for m in METRICS]
 else:
-    WORK = [(d, HEADLINE) for d in HEADLINE_DATES] + [(PRIMARY_DATE, m) for m in METRICS if m != HEADLINE]
+    WORK = [(d, m) for d in HEADLINE_DATES for m in DAILY_METRICS] + [(PRIMARY_DATE, m) for m in METRICS if m not in DAILY_METRICS]
 
 # ---------------- accounts ----------------
 from playwright.sync_api import sync_playwright
