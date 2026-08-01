@@ -133,6 +133,21 @@ tfoot .lbl{font-family:'Inter';font-size:10.5px;letter-spacing:.16em;text-transf
     </table>
   </div>
 
+  <div class="tblwrap hidden" id="menuHealthWrap">
+    <h1 class="serif" style="font-size:18px;margin:22px 0 2px">Menu Health &amp; Ratings</h1>
+    <div class="sub" style="margin:0 0 10px">Items missing a photo or description hurt conversion — lower is better.</div>
+    <table id="mhTbl">
+      <thead><tr>
+        <th>Outlet</th>
+        <th>Rating</th>
+        <th>Items</th>
+        <th>No Photo</th>
+        <th>No Description</th>
+      </tr></thead>
+      <tbody id="mhRows"></tbody>
+    </table>
+  </div>
+
   <div class="foot">
     <span>Tap any outlet to open its full performance dashboard.</span>
     <span>Growth · ads · operations — DM "DASH" or call 8130032195</span>
@@ -302,6 +317,34 @@ document.querySelectorAll('th').forEach(th=>th.addEventListener('click',()=>{
 }));
 document.getElementById('q').addEventListener('input',render);
 
+// ---- Zomato-only: Menu Health & Ratings (reads zomato_menu_health) ----
+async function fetchMenuHealth(){
+  const h={apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY};
+  const base=SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/zomato_menu_health';
+  const r1=await fetch(base+"?select=captured_on&order=captured_on.desc&limit=1",{headers:h});
+  if(!r1.ok) return null; const j=await r1.json(); if(!j.length) return null;
+  const day=j[0].captured_on;
+  const r2=await fetch(base+"?captured_on=eq."+day+"&select=rid,outlet_name,rating,review_count,total_items,items_no_image,items_no_description&limit=5000",{headers:h});
+  if(!r2.ok) return null;
+  return {day, list: await r2.json()};
+}
+function mhPct(n,t){ return t? Math.round(n/t*100):0; }
+function renderMenuHealth(list){
+  list.sort((a,b)=>(b.items_no_image||0)-(a.items_no_image||0));
+  document.getElementById('mhRows').innerHTML=list.map(o=>{
+    const rating=o.rating!=null?Number(o.rating).toFixed(1):'—';
+    const rev=o.review_count!=null?Number(o.review_count).toLocaleString('en-IN'):'0';
+    const t=o.total_items||0, ni=o.items_no_image||0, nd=o.items_no_description||0;
+    return `<tr>
+      <td><div class="nm">${o.outlet_name||('RID '+o.rid)}</div><div class="meta">RID ${o.rid}</div></td>
+      <td>${rating} <span class="meta">(${rev})</span></td>
+      <td>${t}</td>
+      <td>${ni} <span class="meta">${mhPct(ni,t)}%</span></td>
+      <td>${nd} <span class="meta">${mhPct(nd,t)}%</span></td>
+    </tr>`;
+  }).join('');
+}
+
 (async function boot(){
   reflectPlatform();
   let live=null;
@@ -321,6 +364,11 @@ document.getElementById('q').addEventListener('input',render);
   document.getElementById('liveTxt').textContent=on?'live':'preview';
   document.getElementById('previewBanner').classList.toggle('hidden',on);
   render();
+  if(PLATFORM==='zomato'){
+    try{ const mh=await fetchMenuHealth();
+      if(mh && mh.list && mh.list.length){ renderMenuHealth(mh.list); document.getElementById('menuHealthWrap').classList.remove('hidden'); }
+    }catch(e){ console.warn('menu health fetch failed:', e); }
+  }
 })();
 </script>
 </body>
