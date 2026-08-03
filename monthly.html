@@ -405,8 +405,10 @@ async function logoDataURL(){ try{const r=await fetch("pfc-logo.png");if(!r.ok)r
   return await new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result);f.onerror=rej;f.readAsDataURL(b);});}catch(e){return null;} }
 
 function cellText(row,plat,mk,map){
-  const v=map[plat+"|"+mk+"|"+row.label];
-  return (v&&(''+v).trim())?(''+v).trim():"—";
+  let v=map[plat+"|"+mk+"|"+row.label];
+  if(v==null || (''+v).trim()==="") return "—";
+  // jsPDF's built-in font has no ₹ glyph -> use "Rs" for the PDF
+  return (''+v).trim().replace(/₹\s?/g,"Rs ");
 }
 
 async function downloadPDF(){
@@ -434,7 +436,7 @@ async function downloadPDF(){
     margin:{top:32,bottom:16,left:14,right:14},
     styles:{font:"helvetica",fontSize:9.5,cellPadding:2.4,textColor:[30,26,18],lineColor:[228,223,210],lineWidth:0.1,halign:"right",valign:"middle"},
     headStyles:{fillColor:[241,236,223],textColor:[20,17,11],fontStyle:"bold",lineColor:[185,147,47],lineWidth:0.2,halign:"center"},
-    columnStyles:{0:{halign:"left",cellWidth:52}},
+    columnStyles:{0:{halign:"left",cellWidth:50,fontStyle:"bold"},1:{cellWidth:33},2:{cellWidth:33},3:{cellWidth:33},4:{cellWidth:33}},
     didDrawPage:()=>{
       const W=doc.internal.pageSize.getWidth(), H=doc.internal.pageSize.getHeight();
       const p=doc.internal.getCurrentPageInfo().pageNumber;
