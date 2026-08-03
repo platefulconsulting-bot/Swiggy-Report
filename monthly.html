@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>PFC · Monthly Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root{--bg:#0a0a0b;--panel:#121214;--panel2:#17171a;--line:#26262b;--ink:#f4f1ea;--muted:#8d8a83;--faint:#5c5a55;--gold:#C5A14E;--gold-dim:#9b7f3e;--gold-soft:#3a3220;--sw:#fc8019;--zo:#e23744}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{background-image:radial-gradient(900px 500px at 85% -10%,rgba(197,161,78,.07),transparent 60%);min-height:100vh}
+.wrap{max-width:1080px;margin:0 auto;padding:40px 22px 90px}
+.serif{font-family:'Playfair Display',serif}
+header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding-bottom:20px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:14px}
+.mark{width:44px;height:44px;border-radius:9px;object-fit:cover;border:1px solid var(--gold-soft);background:#000}
+.brand h1{font-size:19px;font-weight:600}
+.brand .sub{font-size:11.5px;color:var(--muted);letter-spacing:.18em;text-transform:uppercase;margin-top:2px}
+.backbtn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);color:var(--muted);font:600 12px 'Inter';padding:9px 14px;border-radius:8px;cursor:pointer;text-decoration:none;transition:.15s}
+.backbtn:hover{border-color:var(--gold-dim);color:var(--gold)}
+.controls{display:flex;align-items:flex-end;gap:14px;margin:22px 0 8px;flex-wrap:wrap}
+.fld{display:flex;flex-direction:column;gap:6px}
+.fld label{font:600 10px 'Inter';letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+select{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:10px 13px;font:500 14px 'Inter';min-width:130px}
+select:focus{outline:none;border-color:var(--gold-dim)}
+select#outlet{min-width:230px;font-family:'Playfair Display',serif;font-size:15px}
+.btn{border:1px solid var(--line);background:transparent;color:var(--muted);font:600 12px 'Inter';letter-spacing:.06em;text-transform:uppercase;padding:11px 16px;border-radius:9px;cursor:pointer;transition:.15s}
+.btn:hover{border-color:var(--gold-dim);color:var(--gold)}
+.btn.gold{background:var(--gold);border-color:var(--gold);color:#14110b}
+.btn.gold:hover{filter:brightness(1.08);color:#14110b}
+.status{font-size:12.5px;color:var(--faint);margin:10px 2px}
+.rep{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:13px;overflow:auto}
+table{width:100%;border-collapse:collapse;min-width:640px}
+caption{caption-side:top;text-align:left;font:600 17px 'Playfair Display',serif;color:var(--ink);padding:16px 18px 2px}
+th,td{padding:9px 14px;border-bottom:1px solid #1c1c20;font-size:13.5px;text-align:right;font-variant-numeric:tabular-nums}
+th.rowlab,td.rowlab{text-align:left;color:var(--ink)}
+thead th{background:var(--panel2);color:var(--gold);font:600 11px 'Inter';letter-spacing:.06em;text-transform:uppercase}
+thead th.zo{color:var(--zo)} thead th.sw{color:var(--sw)}
+.plat{font:700 12px 'Inter';letter-spacing:.1em;text-transform:uppercase}
+tr.sec td{background:var(--panel2);color:var(--gold);font:600 10.5px 'Inter';letter-spacing:.14em;text-transform:uppercase;text-align:left}
+td.dim{color:var(--faint)}
+td input{width:88px;background:#0e0e10;border:1px solid var(--gold-soft);border-radius:6px;color:var(--gold);padding:5px 7px;font:600 13px 'Inter';text-align:right}
+td input:focus{outline:none;border-color:var(--gold)}
+.note{font-size:11.5px;color:var(--faint);margin:8px 2px 0}
+.hint{color:var(--gold)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <img class="mark" src="pfc-logo.png" alt="PFC">
+      <div><h1 class="serif">Monthly Report</h1><div class="sub">Plateful Consulting · Zomato vs Swiggy</div></div>
+    </div>
+    <a class="backbtn" href="index.html">&#8592; Dashboard</a>
+  </header>
+
+  <div class="controls">
+    <div class="fld"><label>Outlet</label><select id="outlet"></select></div>
+    <div class="fld"><label>Month A</label><select id="mA"></select></div>
+    <div class="fld"><label>Month B</label><select id="mB"></select></div>
+    <button class="btn" onclick="generate()">Generate</button>
+    <button class="btn gold" onclick="downloadPDF()">&#8595; Download PDF</button>
+  </div>
+  <div class="status" id="status">Pick an outlet and two months, then Generate.</div>
+
+  <div class="rep" id="rep" style="display:none">
+    <table id="tbl"></table>
+  </div>
+  <div class="note" id="manualNote" style="display:none">
+    <span class="hint">Gold boxes</span> are manual fields (Rating, Payout %, Effective Discount, and metrics a platform doesn't expose to our scraper) — type them in; they flow straight into the PDF.
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL="https://bsaywfsutztnqhbhoalo.supabase.co";
+const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJzYXl3ZnN1dHp0bnFoYmhvYWxvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NTc4NTMsImV4cCI6MjA5MDAzMzg1M30.kH9a8LAsbe9EGzPgcETrk_daMnIuVYXTf7M-vNYGQug";
+
+// outlet -> {zomato res_id, swiggy rid}
+const OUTLETS=[
+ {name:"9Tea Bar",z:"22326240",s:"926924"},
+ {name:"Balaji Dhaba",z:"90120",s:"36928"},
+ {name:"Chinese Attire",z:"22216139",s:"1332373"},
+ {name:"Dragons Kitchen",z:"22589254",s:"1394350"},
+ {name:"Drama",z:"21209117",s:"901637"},
+ {name:"House Of Rhapsody",z:"22539300",s:"1334381"},
+ {name:"LSD - Like Something Dope",z:"21521978",s:"1134336"},
+ {name:"OTT - One 2 Three",z:"22591309",s:"1345339"},
+ {name:"Olantic 8",z:"22567694",s:"1333360"},
+ {name:"Ranch Lab",z:"22794193",s:"1404107"},
+ {name:"Taco Amigos",z:"22762499",s:"1361970"},
+ {name:"The Burrito Bros",z:"22538167",s:"1312611"},
+ {name:"Mohan Sweets",z:"22215812",s:"1220463"},
+ {name:"Limitless Luxe",z:"20526170",s:"661617"},
+];
+
+const M="__MAN__", AD="__AD__";
+const ROWS=[
+ {sec:"Sales Overview"},
+ {label:"Net Sale",         z:"Net Sales",z2:"Net Sales", s:"Net Sales", fmt:"money"},
+ {label:"Total Order",      z:"Delivered Orders", s:"Delivered Orders", fmt:"num"},
+ {label:"AOV",              z:"Net AOV", s:"Net AOV", fmt:"money"},
+ {label:"Lost Sales",       z:"Lost Sales", s:"Cancelled Order Loss", fmt:"money"},
+ {label:"Cancellation Order",z:"Restaurant Cancelled Orders", s:"Restaurant Cancelled Orders", fmt:"num"},
+ {label:"KPT",              z:M, s:"Kitchen Prep Time", fmt:"mins"},
+ {label:"Online %",         z:"Online Availability %", s:"Online Availability %", fmt:"pct"},
+ {label:"Complaints",       z:"Total complaints", s:M, fmt:"num"},
+ {sec:"Customer Metrics"},
+ {label:"Rating",           z:M, s:M, fmt:"num"},
+ {sec:"Ads Data"},
+ {label:"Ad spend",         z:M, s:AD, fmt:"money"},
+ {label:"ROI",              z:M, s:"ROAS", fmt:"num"},
+ {label:"Payout %",         z:M, s:M, fmt:"pct"},
+ {label:"Effective Discount",z:M, s:M, fmt:"pct"},
+];
+
+const Z_METRICS=["Net Sales","Delivered Orders","Net AOV","Lost Sales","Restaurant Cancelled Orders","Online Availability %","Total complaints"];
+const S_METRICS=["Net Sales","Delivered Orders","Net AOV","Cancelled Order Loss","Restaurant Cancelled Orders","Kitchen Prep Time","Online Availability %","ROAS","Total CPC Spends","Total CBA Spends"];
+
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function monthOptions(){
+  const out=[]; const now=new Date();
+  let y=2026,m=5; // June 2026
+  while(y<now.getFullYear() || (y===now.getFullYear() && m<=now.getMonth())){
+    out.push({key:`${y}-${String(m+1).padStart(2,"0")}`, label:`${MONTHS[m]}'${String(y).slice(2)}`});
+    m++; if(m>11){m=0;y++;}
+  }
+  return out;
+}
+
+let DATA={}, MANUALS={};   // DATA[plat] = { 'YYYY-MM': {metric:{value,is_pct,is_currency}} }
+
+async function fetchMonthly(plat,rid,metrics){
+  if(!rid) return {};
+  const enc=encodeURIComponent;
+  const inList="("+metrics.map(x=>'"'+x+'"').join(",")+")";
+  const url=`${SUPABASE_URL}/rest/v1/${plat}_metrics?select=captured_on,metric,value,is_pct,is_currency,no_data`
+    +`&rid=eq.${enc(rid)}&period=eq.${enc("This Month")}&metric=in.${enc(inList)}`
+    +`&order=captured_on.desc&limit=20000`;
+  const r=await fetch(url,{headers:{apikey:SUPABASE_ANON_KEY,Authorization:"Bearer "+SUPABASE_ANON_KEY}});
+  if(!r.ok) throw new Error("Supabase "+r.status);
+  const monthly={};
+  for(const row of await r.json()){
+    if(row.no_data) continue;
+    const mk=String(row.captured_on).slice(0,7);
+    monthly[mk]=monthly[mk]||{};
+    if(!(row.metric in monthly[mk])) monthly[mk][row.metric]={value:row.value,is_pct:row.is_pct,is_currency:row.is_currency};
+  }
+  return monthly;
+}
+
+function autoRec(row,plat,md){
+  if(!md) return null;
+  const src = plat==="z" ? row.z : row.s;
+  if(src===M || src===undefined) return "MANUAL";
+  if(src===AD){ const a=(md["Total CPC Spends"]&&md["Total CPC Spends"].value||0)+(md["Total CBA Spends"]&&md["Total CBA Spends"].value||0); return a? {value:a}:null; }
+  const rec=md[src];
+  if(!rec || rec.value==null) return null;
+  return rec;
+}
+function fmt(rec,how,pdf){
+  if(rec==null) return "—";
+  let v=Number(rec.value); if(Number.isNaN(v)) return "—";
+  const cur = pdf?"Rs ":"₹";
+  if(how==="money") return cur+Math.round(v).toLocaleString("en-IN");
+  if(how==="pct")   return (Number.isInteger(v)?v:v.toFixed(1))+"%";
+  if(how==="mins")  return (Number.isInteger(v)?v:v.toFixed(1))+" mins";
+  return Math.round(v).toLocaleString("en-IN");
+}
+function manId(plat,mk,label){ return "man__"+plat+"__"+mk+"__"+label.replace(/[^a-z0-9]/gi,""); }
+
+function cols(){
+  const mA=document.getElementById("mA").value, mB=document.getElementById("mB").value;
+  return [["z",mA],["z",mB],["s",mA],["s",mB]];
+}
+function lbl(k){ const o=monthOptions().find(x=>x.key===k); return o?o.label:k; }
+
+function generate(){
+  const o=OUTLETS[document.getElementById("outlet").value];
+  const mA=document.getElementById("mA").value, mB=document.getElementById("mB").value;
+  const st=document.getElementById("status");
+  st.textContent="Loading "+o.name+"…";
+  MANUALS={};
+  Promise.all([fetchMonthly("zomato",o.z,Z_METRICS), fetchMonthly("swiggy",o.s,S_METRICS)])
+    .then(([z,s])=>{ DATA={z, s}; render(o,mA,mB);
+      st.textContent="Report for "+o.name+" — "+lbl(mA)+" vs "+lbl(mB)+". Fill the gold boxes, then Download PDF.";
+    })
+    .catch(e=>{ st.textContent="Couldn't load data: "+e.message; });
+}
+
+function render(o,mA,mB){
+  const t=document.getElementById("tbl");
+  const C=cols();
+  let h=`<caption>${o.name}</caption><thead><tr><th class="rowlab"></th>`
+    +`<th class="zo" colspan="2"><span class="plat">Zomato</span></th>`
+    +`<th class="sw" colspan="2"><span class="plat">Swiggy</span></th></tr>`
+    +`<tr><th class="rowlab">Metric</th>`
+    +`<th class="zo">${lbl(mA)}</th><th class="zo">${lbl(mB)}</th>`
+    +`<th class="sw">${lbl(mA)}</th><th class="sw">${lbl(mB)}</th></tr></thead><tbody>`;
+  for(const row of ROWS){
+    if(row.sec){ h+=`<tr class="sec"><td colspan="5">${row.sec}</td></tr>`; continue; }
+    h+=`<tr><td class="rowlab">${row.label}</td>`;
+    for(const [plat,mk] of C){
+      const md = DATA[plat] ? DATA[plat][mk] : null;
+      const rec = autoRec(row,plat,md);
+      if(rec==="MANUAL"){
+        const id=manId(plat,mk,row.label);
+        h+=`<td><input id="${id}" data-k="${id}" placeholder="—" oninput="MANUALS[this.dataset.k]=this.value"></td>`;
+      } else {
+        h+=`<td class="${rec==null?'dim':''}">${fmt(rec,row.fmt,false)}</td>`;
+      }
+    }
+    h+=`</tr>`;
+  }
+  h+=`</tbody>`;
+  t.innerHTML=h;
+  document.getElementById("rep").style.display="";
+  document.getElementById("manualNote").style.display="";
+}
+
+// ---- PDF ----
+async function logoDataURL(){ try{const r=await fetch("pfc-logo.png");if(!r.ok)return null;const b=await r.blob();
+  return await new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result);f.onerror=rej;f.readAsDataURL(b);});}catch(e){return null;} }
+
+function cellText(row,plat,mk){
+  const md = DATA[plat] ? DATA[plat][mk] : null;
+  const rec = autoRec(row,plat,md);
+  if(rec==="MANUAL"){ const v=MANUALS[manId(plat,mk,row.label)]; return (v&&v.trim())?v.trim():"—"; }
+  return fmt(rec,row.fmt,true);
+}
+
+async function downloadPDF(){
+  if(!(window.jspdf&&window.jspdf.jsPDF)){ alert("PDF engine not loaded — check your connection."); return; }
+  if(!DATA.z && !DATA.s){ alert("Generate a report first."); return; }
+  const o=OUTLETS[document.getElementById("outlet").value];
+  const mA=document.getElementById("mA").value, mB=document.getElementById("mB").value;
+  const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:"mm",format:"a4"});
+  const logo=await logoDataURL();
+  const body=[];
+  for(const row of ROWS){
+    if(row.sec){ body.push([{content:row.sec,colSpan:5,styles:{fillColor:[241,236,223],textColor:[138,109,31],fontStyle:"bold",halign:"left"}}]); continue; }
+    body.push([ {content:row.label,styles:{halign:"left",fontStyle:"bold"}},
+      cellText(row,"z",mA), cellText(row,"z",mB), cellText(row,"s",mA), cellText(row,"s",mB) ]);
+  }
+  doc.autoTable({
+    head:[
+      [{content:"",styles:{fillColor:[255,255,255]}},
+       {content:"Zomato",colSpan:2,styles:{halign:"center",textColor:[226,55,68]}},
+       {content:"Swiggy",colSpan:2,styles:{halign:"center",textColor:[252,128,25]}}],
+      ["Metric", lbl(mA), lbl(mB), lbl(mA), lbl(mB)]
+    ],
+    body,
+    margin:{top:32,bottom:16,left:14,right:14},
+    styles:{font:"helvetica",fontSize:9.5,cellPadding:2.4,textColor:[30,26,18],lineColor:[228,223,210],lineWidth:0.1,halign:"right",valign:"middle"},
+    headStyles:{fillColor:[241,236,223],textColor:[20,17,11],fontStyle:"bold",lineColor:[185,147,47],lineWidth:0.2,halign:"center"},
+    columnStyles:{0:{halign:"left",cellWidth:52}},
+    didDrawPage:()=>{
+      const W=doc.internal.pageSize.getWidth(), H=doc.internal.pageSize.getHeight();
+      const p=doc.internal.getCurrentPageInfo().pageNumber;
+      if(logo){ try{ doc.addImage(logo,"PNG",14,9,13,13); }catch(e){} }
+      doc.setTextColor(20,17,11); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+      doc.text("Plateful Consulting", 30, 15);
+      doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.setTextColor(110,99,85);
+      doc.text("Monthly Report · "+o.name, 30, 20.5);
+      doc.setFontSize(9); doc.setTextColor(90,85,70);
+      doc.text(lbl(mA)+"  vs  "+lbl(mB), W-14, 15, {align:"right"});
+      doc.setDrawColor(185,147,47); doc.setLineWidth(0.5); doc.line(14,25,W-14,25);
+      doc.setDrawColor(228,223,210); doc.setLineWidth(0.3); doc.line(14,H-12,W-14,H-12);
+      doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(140,132,115);
+      doc.text("© Plateful Consulting", 14, H-8);
+      doc.text("Page "+p, W-14, H-8, {align:"right"});
+    }
+  });
+  doc.save(o.name.replace(/[^0-9A-Za-z_-]/g,"_")+"_monthly_"+mA+"_"+mB+".pdf");
+}
+
+// ---- init ----
+(function init(){
+  const os=document.getElementById("outlet");
+  OUTLETS.forEach((o,i)=>{ const opt=document.createElement("option"); opt.value=i; opt.textContent=o.name; os.appendChild(opt); });
+  const mo=monthOptions();
+  const mA=document.getElementById("mA"), mB=document.getElementById("mB");
+  mo.forEach(m=>{ [mA,mB].forEach(sel=>{ const o=document.createElement("option"); o.value=m.key; o.textContent=m.label; sel.appendChild(o.cloneNode(true)); }); });
+  // default: two most recent months
+  if(mo.length>=2){ mA.value=mo[mo.length-2].key; mB.value=mo[mo.length-1].key; }
+})();
+</script>
+</body>
+</html>
