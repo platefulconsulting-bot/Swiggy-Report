@@ -45,6 +45,7 @@ tr.sec td{background:var(--panel2);color:var(--gold);font:600 10.5px 'Inter';let
 td.dim{color:var(--faint)}
 td input{width:88px;background:#0e0e10;border:1px solid var(--gold-soft);border-radius:6px;color:var(--gold);padding:5px 7px;font:600 13px 'Inter';text-align:right}
 td input:focus{outline:none;border-color:var(--gold)}
+td.sheet{box-shadow:inset 3px 0 0 var(--gold-soft)}
 .note{font-size:11.5px;color:var(--faint);margin:8px 2px 0}
 .hint{color:var(--gold)}
 </style>
@@ -133,6 +134,8 @@ function monthOptions(){
 }
 
 let DATA={}, MANUALS={};   // DATA[plat] = { 'YYYY-MM': {metric:{value,is_pct,is_currency}} }
+let HIST={}, CUR_HIST_KEY=null;   // historical values parsed from the monthly CSV
+const CSV_FILE="Monthly Report __ Zomato-Swiggy __ PFC - May'26.csv";
 
 async function fetchMonthly(plat,rid,metrics){
   if(!rid) return {};
@@ -173,6 +176,121 @@ function fmt(rec,how,pdf){
 }
 function manId(plat,mk,label){ return "man__"+plat+"__"+mk+"__"+label.replace(/[^a-z0-9]/gi,""); }
 
+// ---- historical monthly CSV (fallback source for months Supabase lacks, e.g. Zomato June) ----
+function parseCSV(text){
+  const rows=[]; let row=[], field="", i=0, inQ=false;
+  while(i<text.length){
+    const c=text[i];
+    if(inQ){
+      if(c==='"'){ if(text[i+1]==='"'){field+='"';i+=2;continue;} inQ=false;i++;continue; }
+      field+=c;i++;continue;
+    }
+    if(c==='"'){inQ=true;i++;continue;}
+    if(c===','){row.push(field);field="";i++;continue;}
+    if(c==='\r'){i++;continue;}
+    if(c==='\n'){row.push(field);rows.push(row);row=[];field="";i++;continue;}
+    field+=c;i++;
+  }
+  if(field.length||row.length){row.push(field);rows.push(row);}
+  return rows;
+}
+function parseMonthCell(s){
+  const m=(s||"").trim().match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?'?\s?(\d{2,4})/i);
+  if(!m) return null;
+  const mi=MONTHS.findIndex(x=>x.toLowerCase()===m[1].slice(0,3).toLowerCase());
+  if(mi<0) return null;
+  let y=m[2]; if(y.length===2) y="20"+y;
+  return y+"-"+String(mi+1).padStart(2,"0");
+}
+function mapMetric(l){
+  l=(l||"").toLowerCase().replace(/\s+/g," ").trim();
+  if(/net sale|total sale/.test(l)) return "Net Sale";
+  if(/total order|^orders?\b/.test(l)) return "Total Order";
+  if(/^aov/.test(l)) return "AOV";
+  if(/lost sale|cancellation loss/.test(l)) return "Lost Sales";
+  if(/cancellation order|rejected order/.test(l)) return "Cancellation Order";
+  if(/^kpt/.test(l)) return "KPT";
+  if(/online/.test(l)) return "Online %";
+  if(/complaint/.test(l)) return "Complaints";
+  if(/rating/.test(l)) return "Rating";
+  if(/ad ?spend|ads spent/.test(l)) return "Ad spend";
+  if(/roi|roas/.test(l)) return "ROI";
+  if(/payout/.test(l)) return "Payout %";
+  if(/effective disc/.test(l)) return "Effective Discount";
+  return null;
+}
+function parseSheet(rows){
+  const H={};
+  const isHdr=r=> r&&r.length&&(r[0]||"").trim() && r.some(c=>/^zomato$/i.test((c||"").trim())) && r.some(c=>/^swiggy$/i.test((c||"").trim()));
+  for(let i=0;i<rows.length;i++){
+    if(!isHdr(rows[i])) continue;
+    const name=(rows[i][0]||"").trim();
+    const sCol=rows[i].findIndex(c=>/^swiggy$/i.test((c||"").trim()));
+    const monthRow=rows[i+1]||[];
+    const mcols=[];
+    for(let c=0;c<monthRow.length;c++){ const mk=parseMonthCell(monthRow[c]); if(mk) mcols.push({mk,col:c,plat:c<sCol?"z":"s"}); }
+    H[name]=H[name]||{z:{},s:{}};
+    let j=i+2;
+    for(;j<rows.length;j++){
+      const r=rows[j];
+      if(isHdr(r)) break;
+      const metric=((r&&r[1])||"").trim();
+      if(!metric) break;
+      const lab=mapMetric(metric); if(!lab) continue;
+      for(const mc of mcols){
+        const v=((r[mc.col])||"").trim();
+        if(v===""||v==="-") continue;
+        H[name][mc.plat][mc.mk]=H[name][mc.plat][mc.mk]||{};
+        if(!(lab in H[name][mc.plat][mc.mk])) H[name][mc.plat][mc.mk][lab]=v;
+      }
+    }
+    i=j-1;
+  }
+  return H;
+}
+const norm=s=>(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+function matchHistKey(name){
+  const n=norm(name); let best=null;
+  for(const k of Object.keys(HIST)){
+    const kn=norm(k);
+    if(kn===n) return k;
+    if(kn.includes(n)||n.includes(kn)){ if(!best || Math.abs(kn.length-n.length)<Math.abs(norm(best).length-n.length)) best=k; }
+  }
+  return best;
+}
+function histLookup(plat,mk,label){
+  if(!CUR_HIST_KEY) return null;
+  const o=HIST[CUR_HIST_KEY]; if(!o||!o[plat]||!o[plat][mk]) return null;
+  const v=o[plat][mk][label];
+  return v!=null?v:null;
+}
+function fmtHist(s,how,pdf){
+  if(s==null) return "—";
+  s=String(s).trim(); if(!s||s==="-") return "—";
+  const num=parseFloat(s.replace(/₹/g,"").replace(/,/g,"").replace(/%/g,"").replace(/mins?/gi,"").trim());
+  if(!isNaN(num) && /\d/.test(s)) return fmt({value:num},how,pdf);
+  return s;
+}
+// Supabase first, else sheet; manual rows always editable (pre-filled from sheet if present)
+function resolveCell(row,plat,mk){
+  const md=DATA[plat]?DATA[plat][mk]:null;
+  const rec=autoRec(row,plat,md);
+  const hist=histLookup(plat,mk,row.label);
+  if(rec==="MANUAL") return {manual:true, prefill:(hist!=null?String(hist).trim():"")};
+  if(hist!=null) return {hist};                 // the monthly sheet is the authoritative final where it has a value
+  if(rec && rec.value!=null) return {rec};       // else Supabase (months the sheet doesn't cover, e.g. July+)
+  return {};
+}
+async function loadSheet(){
+  try{
+    const r=await fetch(encodeURI(CSV_FILE));
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    HIST=parseSheet(parseCSV(await r.text()));
+    const s=document.getElementById("status");
+    if(s && /^Pick|^Loaded/.test(s.textContent)) s.textContent="Loaded historical sheet ("+Object.keys(HIST).length+" outlets). Pick an outlet and two months, then Generate.";
+  }catch(e){ console.warn("historical sheet not loaded:",e.message); }
+}
+
 function cols(){
   const mA=document.getElementById("mA").value, mB=document.getElementById("mB").value;
   return [["z",mA],["z",mB],["s",mA],["s",mB]];
@@ -184,7 +302,7 @@ function generate(){
   const mA=document.getElementById("mA").value, mB=document.getElementById("mB").value;
   const st=document.getElementById("status");
   st.textContent="Loading "+o.name+"…";
-  MANUALS={};
+  MANUALS={}; CUR_HIST_KEY=matchHistKey(o.name);
   Promise.all([fetchMonthly("zomato",o.z,Z_METRICS), fetchMonthly("swiggy",o.s,S_METRICS)])
     .then(([z,s])=>{ DATA={z, s}; render(o,mA,mB);
       st.textContent="Report for "+o.name+" — "+lbl(mA)+" vs "+lbl(mB)+". Fill the gold boxes, then Download PDF.";
@@ -205,13 +323,18 @@ function render(o,mA,mB){
     if(row.sec){ h+=`<tr class="sec"><td colspan="5">${row.sec}</td></tr>`; continue; }
     h+=`<tr><td class="rowlab">${row.label}</td>`;
     for(const [plat,mk] of C){
-      const md = DATA[plat] ? DATA[plat][mk] : null;
-      const rec = autoRec(row,plat,md);
-      if(rec==="MANUAL"){
+      const cell=resolveCell(row,plat,mk);
+      if(cell.manual){
         const id=manId(plat,mk,row.label);
-        h+=`<td><input id="${id}" data-k="${id}" placeholder="—" oninput="MANUALS[this.dataset.k]=this.value"></td>`;
+        if(cell.prefill && MANUALS[id]===undefined) MANUALS[id]=cell.prefill;
+        const val=MANUALS[id]!==undefined?MANUALS[id]:(cell.prefill||"");
+        h+=`<td><input id="${id}" data-k="${id}" value="${(''+val).replace(/"/g,'&quot;')}" placeholder="—" oninput="MANUALS[this.dataset.k]=this.value"></td>`;
+      } else if(cell.rec){
+        h+=`<td>${fmt(cell.rec,row.fmt,false)}</td>`;
+      } else if(cell.hist!=null){
+        h+=`<td class="sheet" title="from monthly sheet">${fmtHist(cell.hist,row.fmt,false)}</td>`;
       } else {
-        h+=`<td class="${rec==null?'dim':''}">${fmt(rec,row.fmt,false)}</td>`;
+        h+=`<td class="dim">—</td>`;
       }
     }
     h+=`</tr>`;
@@ -227,10 +350,11 @@ async function logoDataURL(){ try{const r=await fetch("pfc-logo.png");if(!r.ok)r
   return await new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result);f.onerror=rej;f.readAsDataURL(b);});}catch(e){return null;} }
 
 function cellText(row,plat,mk){
-  const md = DATA[plat] ? DATA[plat][mk] : null;
-  const rec = autoRec(row,plat,md);
-  if(rec==="MANUAL"){ const v=MANUALS[manId(plat,mk,row.label)]; return (v&&v.trim())?v.trim():"—"; }
-  return fmt(rec,row.fmt,true);
+  const cell=resolveCell(row,plat,mk);
+  if(cell.manual){ const v=MANUALS[manId(plat,mk,row.label)]; return (v&&(''+v).trim())?(''+v).trim():"—"; }
+  if(cell.rec) return fmt(cell.rec,row.fmt,true);
+  if(cell.hist!=null) return fmtHist(cell.hist,row.fmt,true);
+  return "—";
 }
 
 async function downloadPDF(){
@@ -287,6 +411,7 @@ async function downloadPDF(){
   mo.forEach(m=>{ [mA,mB].forEach(sel=>{ const o=document.createElement("option"); o.value=m.key; o.textContent=m.label; sel.appendChild(o.cloneNode(true)); }); });
   // default: two most recent months
   if(mo.length>=2){ mA.value=mo[mo.length-2].key; mB.value=mo[mo.length-1].key; }
+  loadSheet();
 })();
 </script>
 </body>
