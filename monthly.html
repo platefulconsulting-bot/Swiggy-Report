@@ -43,9 +43,12 @@ thead th.zo{color:var(--zo)} thead th.sw{color:var(--sw)}
 .plat{font:700 12px 'Inter';letter-spacing:.1em;text-transform:uppercase}
 tr.sec td{background:var(--panel2);color:var(--gold);font:600 10.5px 'Inter';letter-spacing:.14em;text-transform:uppercase;text-align:left}
 td.dim{color:var(--faint)}
-td input{width:88px;background:#0e0e10;border:1px solid var(--gold-soft);border-radius:6px;color:var(--gold);padding:5px 7px;font:600 13px 'Inter';text-align:right}
-td input:focus{outline:none;border-color:var(--gold)}
-td.sheet{box-shadow:inset 3px 0 0 var(--gold-soft)}
+td input.cell{width:100%;min-width:74px;background:transparent;border:1px solid transparent;border-radius:6px;color:var(--ink);padding:5px 7px;font:500 13.5px 'Inter';text-align:right}
+td input.cell:hover{border-color:var(--line)}
+td input.cell:focus{outline:none;border-color:var(--gold);background:#0e0e10}
+td input.cell.edited{color:var(--gold);border-color:var(--gold-soft)}
+.savemsg{font-size:12px;margin-left:8px}
+.savemsg.ok{color:#3fae7a} .savemsg.err{color:#e06a5a}
 .note{font-size:11.5px;color:var(--faint);margin:8px 2px 0}
 .hint{color:var(--gold)}
 </style>
@@ -67,13 +70,13 @@ td.sheet{box-shadow:inset 3px 0 0 var(--gold-soft)}
     <button class="btn" onclick="generate()">Generate</button>
     <button class="btn gold" onclick="downloadPDF()">&#8595; Download PDF</button>
   </div>
-  <div class="status" id="status">Pick an outlet and two months, then Generate.</div>
+  <div class="status" id="status">Pick an outlet and two months, then Generate.<span class="savemsg" id="savemsg"></span></div>
 
   <div class="rep" id="rep" style="display:none">
     <table id="tbl"></table>
   </div>
   <div class="note" id="manualNote" style="display:none">
-    <span class="hint">Gold boxes</span> are manual fields (Rating, Payout %, Effective Discount, and metrics a platform doesn't expose to our scraper) — type them in; they flow straight into the PDF.
+    <span class="hint">Every cell is editable</span> — type over any value to correct it. Edits save to the shared database automatically, so anyone opening this report sees your changes (it refreshes others' edits every ~12 seconds). Auto-filled values come from the monthly sheet (June & earlier) and live Supabase (July+); your edits always win.
   </div>
 </div>
 
@@ -136,6 +139,10 @@ function monthOptions(){
 let DATA={}, MANUALS={};   // DATA[plat] = { 'YYYY-MM': {metric:{value,is_pct,is_currency}} }
 let HIST={}, CUR_HIST_KEY=null;   // historical values parsed from the monthly CSV
 const CSV_FILE="Monthly Report __ Zomato-Swiggy __ PFC - May'26.csv";
+let OVERRIDES={};                 // shared, saved edits: OVERRIDES["z|2026-06|Net Sale"]="…"
+const OV_TABLE="report_overrides";
+let SYNC_TIMER=null, CUR_OUTLET_NAME="";
+const escAttr=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
 
 async function fetchMonthly(plat,rid,metrics){
   if(!rid) return {};
@@ -291,6 +298,53 @@ async function loadSheet(){
   }catch(e){ console.warn("historical sheet not loaded:",e.message); }
 }
 
+// ---- shared editable overrides (saved to Supabase; every viewer sees them) ----
+function ovKey(plat,mk,label){ return plat+"|"+mk+"|"+label; }
+function baseDisplay(row,plat,mk){
+  const cell=resolveCell(row,plat,mk);
+  if(cell.manual) return cell.prefill||"";
+  if(cell.rec) return fmt(cell.rec,row.fmt,false);
+  if(cell.hist!=null) return fmtHist(cell.hist,row.fmt,false);
+  return "";
+}
+async function loadOverrides(outlet){
+  OVERRIDES={};
+  try{
+    const url=`${SUPABASE_URL}/rest/v1/${OV_TABLE}?select=platform,month,metric,value&outlet=eq.${encodeURIComponent(outlet)}`;
+    const r=await fetch(url,{headers:{apikey:SUPABASE_ANON_KEY,Authorization:"Bearer "+SUPABASE_ANON_KEY}});
+    if(r.ok){ for(const x of await r.json()){ if(x.value!=null) OVERRIDES[ovKey(x.platform,x.month,x.metric)]=x.value; } }
+  }catch(e){ console.warn("overrides load failed:",e.message); }
+}
+async function saveCell(el){
+  const outlet=el.dataset.outlet, plat=el.dataset.plat, mk=el.dataset.mk, metric=el.dataset.metric, value=el.value;
+  OVERRIDES[ovKey(plat,mk,metric)]=value; el.classList.add("edited");
+  const st=document.getElementById("savemsg");
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/${OV_TABLE}?on_conflict=outlet,platform,month,metric`,{
+      method:"POST",
+      headers:{apikey:SUPABASE_ANON_KEY,Authorization:"Bearer "+SUPABASE_ANON_KEY,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"},
+      body:JSON.stringify([{outlet,platform:plat,month:mk,metric,value}])
+    });
+    if(!r.ok) throw new Error("HTTP "+r.status+" "+(await r.text()).slice(0,140));
+    if(st){ st.textContent="Saved ✓"; st.className="savemsg ok"; setTimeout(()=>{if(st.className==='savemsg ok')st.textContent='';},1500); }
+  }catch(e){
+    if(st){ st.textContent="Save failed — did you create the report_overrides table? "+e.message; st.className="savemsg err"; }
+  }
+}
+function currentCells(){ const m={}; document.querySelectorAll("input.cell").forEach(i=>{ m[i.dataset.plat+"|"+i.dataset.mk+"|"+i.dataset.metric]=i.value; }); return m; }
+function startSync(outlet){
+  if(SYNC_TIMER) clearInterval(SYNC_TIMER);
+  SYNC_TIMER=setInterval(async ()=>{
+    if(document.getElementById("outlet") && OUTLETS[document.getElementById("outlet").value].name!==outlet) return;
+    await loadOverrides(outlet);
+    document.querySelectorAll("input.cell").forEach(inp=>{
+      if(inp===document.activeElement) return;
+      const v=OVERRIDES[inp.dataset.plat+"|"+inp.dataset.mk+"|"+inp.dataset.metric];
+      if(v!=null && inp.value!==v){ inp.value=v; inp.classList.add("edited"); }
+    });
+  }, 12000);
+}
+
 function cols(){
   const mA=document.getElementById("mA").value, mB=document.getElementById("mB").value;
   return [["z",mA],["z",mB],["s",mA],["s",mB]];
@@ -302,10 +356,10 @@ function generate(){
   const mA=document.getElementById("mA").value, mB=document.getElementById("mB").value;
   const st=document.getElementById("status");
   st.textContent="Loading "+o.name+"…";
-  MANUALS={}; CUR_HIST_KEY=matchHistKey(o.name);
-  Promise.all([fetchMonthly("zomato",o.z,Z_METRICS), fetchMonthly("swiggy",o.s,S_METRICS)])
-    .then(([z,s])=>{ DATA={z, s}; render(o,mA,mB);
-      st.textContent="Report for "+o.name+" — "+lbl(mA)+" vs "+lbl(mB)+". Fill the gold boxes, then Download PDF.";
+  CUR_HIST_KEY=matchHistKey(o.name); CUR_OUTLET_NAME=o.name;
+  Promise.all([fetchMonthly("zomato",o.z,Z_METRICS), fetchMonthly("swiggy",o.s,S_METRICS), loadOverrides(o.name)])
+    .then(([z,s])=>{ DATA={z, s}; render(o,mA,mB); startSync(o.name);
+      st.textContent="Report for "+o.name+" — "+lbl(mA)+" vs "+lbl(mB)+". Every cell is editable; edits save & sync automatically.";
     })
     .catch(e=>{ st.textContent="Couldn't load data: "+e.message; });
 }
@@ -323,19 +377,12 @@ function render(o,mA,mB){
     if(row.sec){ h+=`<tr class="sec"><td colspan="5">${row.sec}</td></tr>`; continue; }
     h+=`<tr><td class="rowlab">${row.label}</td>`;
     for(const [plat,mk] of C){
-      const cell=resolveCell(row,plat,mk);
-      if(cell.manual){
-        const id=manId(plat,mk,row.label);
-        if(cell.prefill && MANUALS[id]===undefined) MANUALS[id]=cell.prefill;
-        const val=MANUALS[id]!==undefined?MANUALS[id]:(cell.prefill||"");
-        h+=`<td><input id="${id}" data-k="${id}" value="${(''+val).replace(/"/g,'&quot;')}" placeholder="—" oninput="MANUALS[this.dataset.k]=this.value"></td>`;
-      } else if(cell.rec){
-        h+=`<td>${fmt(cell.rec,row.fmt,false)}</td>`;
-      } else if(cell.hist!=null){
-        h+=`<td class="sheet" title="from monthly sheet">${fmtHist(cell.hist,row.fmt,false)}</td>`;
-      } else {
-        h+=`<td class="dim">—</td>`;
-      }
+      const key=ovKey(plat,mk,row.label);
+      const val=(OVERRIDES[key]!=null)?OVERRIDES[key]:baseDisplay(row,plat,mk);
+      const ed=(OVERRIDES[key]!=null)?" edited":"";
+      h+=`<td><input class="cell${ed}" value="${escAttr(val)}" placeholder="—"`
+        +` data-outlet="${escAttr(o.name)}" data-plat="${plat}" data-mk="${mk}" data-metric="${escAttr(row.label)}"`
+        +` onchange="saveCell(this)"></td>`;
     }
     h+=`</tr>`;
   }
@@ -349,12 +396,9 @@ function render(o,mA,mB){
 async function logoDataURL(){ try{const r=await fetch("pfc-logo.png");if(!r.ok)return null;const b=await r.blob();
   return await new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result);f.onerror=rej;f.readAsDataURL(b);});}catch(e){return null;} }
 
-function cellText(row,plat,mk){
-  const cell=resolveCell(row,plat,mk);
-  if(cell.manual){ const v=MANUALS[manId(plat,mk,row.label)]; return (v&&(''+v).trim())?(''+v).trim():"—"; }
-  if(cell.rec) return fmt(cell.rec,row.fmt,true);
-  if(cell.hist!=null) return fmtHist(cell.hist,row.fmt,true);
-  return "—";
+function cellText(row,plat,mk,map){
+  const v=map[plat+"|"+mk+"|"+row.label];
+  return (v&&(''+v).trim())?(''+v).trim():"—";
 }
 
 async function downloadPDF(){
@@ -364,11 +408,12 @@ async function downloadPDF(){
   const mA=document.getElementById("mA").value, mB=document.getElementById("mB").value;
   const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:"mm",format:"a4"});
   const logo=await logoDataURL();
+  const map=currentCells();
   const body=[];
   for(const row of ROWS){
     if(row.sec){ body.push([{content:row.sec,colSpan:5,styles:{fillColor:[241,236,223],textColor:[138,109,31],fontStyle:"bold",halign:"left"}}]); continue; }
     body.push([ {content:row.label,styles:{halign:"left",fontStyle:"bold"}},
-      cellText(row,"z",mA), cellText(row,"z",mB), cellText(row,"s",mA), cellText(row,"s",mB) ]);
+      cellText(row,"z",mA,map), cellText(row,"z",mB,map), cellText(row,"s",mA,map), cellText(row,"s",mB,map) ]);
   }
   doc.autoTable({
     head:[
